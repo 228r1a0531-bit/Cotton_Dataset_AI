@@ -4,3 +4,19 @@ maxUploadSize = 10
 
 [browser]
 gatherUsageStats = false
+
+[theme]
+base = "light"
+primaryColor = "#21704f"
+backgroundColor = "#f8faf8"
+secondaryBackgroundColor = "#eaf2ed"
+textColor = "#152c26"
+font = "sans-serif"
+borderColor = "#dce8e0"
+showWidgetBorder = true
+
+[theme.sidebar]
+backgroundColor = "#102b27"
+secondaryBackgroundColor = "#20433b"
+textColor = "#edf7f1"
+primaryColor = "#81d3aa"
