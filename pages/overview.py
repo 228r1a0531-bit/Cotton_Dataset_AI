@@ -21,7 +21,7 @@ if not isinstance(benchmark, dict) or not all(
 ):
     benchmark = {}
 images, classes, published = st.columns(3)
-images.metric("Dataset images", f"{counts['count'].sum():,}" if counts is not None else "Unavailable")
+images.metric("Images in saved splits", f"{counts['count'].sum():,}" if counts is not None else "Unavailable")
 classes.metric("Target classes", "4")
 published.metric("Published accuracy", benchmark.get("accuracy", "Unavailable"))
 st.caption(benchmark.get("citation", "A source citation and published accuracy are needed to show a benchmark."))
