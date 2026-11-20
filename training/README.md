@@ -117,3 +117,20 @@ Classification** prioritizes an explicit manual checkpoint override. Without
 one, it prefers the latest saved Full Hybrid over Fast Demo. A completed
 refinement of that hybrid takes priority only if its measured accuracy on
 the same validation split improved. Both checkpoints remain selectable.
+
+## Local comparisons for the published model families
+
+Run these with the verified dataset to populate **Model Comparisons → Our Experiment**:
+
+```bash
+python -m training.experiments heads "path/to/dataset" --epochs 5
+python -m training.experiments features "path/to/dataset" --epochs 5
+```
+
+`heads` fits ANN, LSTM, and MLP on the same split with the same hybrid loss.
+The ANN uses one hidden dense layer, the LSTM processes two branch embeddings
+as a short sequence, and the MLP retains the existing two-layer head.
+`features` compares CNN, standard InceptionV3, fixed regional color/Sobel
+descriptors, and hybrid fusion with a common split and cross-entropy.
+These are local, research-inspired designs. Measured accuracy depends on the
+dataset and training budget. The 99.41% published benchmark remains separate.

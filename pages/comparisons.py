@@ -136,7 +136,7 @@ with experiment_tab:
             st.write(description)
             local_name = "Hybrid feature fusion" if name == "Hybrid + MLP" else name
             alias = {"Baseline CNN": "CNN", "InceptionV3": "Standard InceptionV3"}.get(local_name, local_name)
-            if local_name in trained or reported_names.intersection({local_name, alias}):
+            if local_name in trained or reported_names.intersection({name, local_name, alias}):
                 st.caption("Local training recorded")
             else:
                 st.caption("No completed local training recorded")

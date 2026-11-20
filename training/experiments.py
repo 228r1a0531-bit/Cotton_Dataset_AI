@@ -92,9 +92,18 @@ def run_comparison(dataset, directory, epochs, mode):
     elif mode == "stem":
         comparison = "With STEM vs without STEM"
         cases = [(MODEL_NAMES[key], key, "cross_entropy") for key in ("modified", "modified_no_stem")]
+    elif mode == "heads":
+        comparison = "ANN vs LSTM vs MLP"
+        cases = [(label, model, "hybrid") for label, model in
+                 (("Hybrid + ANN", "hybrid_ann"), ("Hybrid + LSTM", "hybrid_lstm"), ("Hybrid + MLP", "hybrid"))]
+    elif mode == "features":
+        comparison = "Local feature variants"
+        cases = [(MODEL_NAMES[model], model, "cross_entropy")
+                 for model in ("baseline", "inception", "handcrafted", "hybrid")]
     else:
         comparison = "Architecture ablation"
-        cases = [(name, model, "cross_entropy") for model, name in MODEL_NAMES.items() if model != "modified_no_stem"]
+        cases = [(MODEL_NAMES[model], model, "cross_entropy")
+                 for model in ("baseline", "cn2_se", "inception", "modified", "hybrid")]
     metrics, complexity = [], []
     for variant, architecture, loss in cases:
         print(variant, flush=True)
@@ -141,7 +150,7 @@ def report_epoch(number, epochs, message):
 def main(argv=None):
     """Parse and execute one local experiment protocol."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("cv", "ablation", "stem", "loss", "external"))
+    parser.add_argument("mode", choices=("cv", "ablation", "stem", "loss", "heads", "features", "external"))
     parser.add_argument("dataset", type=Path, help="Local four-class dataset directory")
     parser.add_argument("--epochs", type=int, default=FULL_EPOCHS)
     parser.add_argument("--model", choices=MODEL_NAMES, default="baseline", help="Architecture for cv")

@@ -13,6 +13,7 @@ class ModelTests(unittest.TestCase):
         from tensorflow import keras
 
         from models.cnn import build_cnn
+        from models.handcrafted import build_handcrafted
         from models.hybrid import build_hybrid
         from models.inception import build_inception_v3, build_modified_inception
 
@@ -23,6 +24,9 @@ class ModelTests(unittest.TestCase):
             "modified InceptionV3": build_modified_inception,
             "modified InceptionV3 without STEM": lambda: build_modified_inception(use_stem=False),
             "hybrid": build_hybrid,
+            "hybrid ANN": lambda: build_hybrid(head="ann"),
+            "hybrid LSTM": lambda: build_hybrid(head="lstm"),
+            "handcrafted": build_handcrafted,
         }
         image = np.full((1, 224, 224, 3), 127, dtype=np.float32)
         for name, build in builders.items():

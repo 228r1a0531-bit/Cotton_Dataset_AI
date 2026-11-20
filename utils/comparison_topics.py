@@ -23,8 +23,8 @@ TOPICS = {
         ("Hybrid feature fusion", "Concatenates both feature vectors before a dropout-regularized MLP."),
     ),
     "ANN vs LSTM vs MLP": (
-        ("Hybrid + ANN", "The paper's ANN classification head on the hybrid features."),
-        ("Hybrid + LSTM", "The paper's recurrent LSTM head on the hybrid features."),
+        ("Hybrid + ANN", "A single hidden dense layer classifies the fused features."),
+        ("Hybrid + LSTM", "An LSTM processes the two branch embeddings as a fixed-order sequence."),
         ("Hybrid + MLP", "The paper's MLP head on the hybrid features. The local implementation has a research-inspired MLP."),
     ),
 }

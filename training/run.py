@@ -33,6 +33,9 @@ MODEL_NAMES = {
     "modified": "Modified InceptionV3",
     "modified_no_stem": "Modified InceptionV3 without STEM",
     "hybrid": "Hybrid feature fusion",
+    "hybrid_ann": "Hybrid + ANN",
+    "hybrid_lstm": "Hybrid + LSTM",
+    "handcrafted": "Handcrafted features",
 }
 
 
@@ -92,6 +95,7 @@ def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: 
         from tensorflow import keras
 
         from models.cnn import build_cnn
+        from models.handcrafted import build_handcrafted
         from models.hybrid import build_hybrid
         from models.inception import build_inception_v3, build_modified_inception
         from models.keras_io import load_classifier
@@ -166,6 +170,9 @@ def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: 
             "modified": build_modified_inception,
             "modified_no_stem": lambda shape, **kwargs: build_modified_inception(shape, use_stem=False, **kwargs),
             "hybrid": build_hybrid,
+            "hybrid_ann": lambda shape, **kwargs: build_hybrid(shape, head="ann", **kwargs),
+            "hybrid_lstm": lambda shape, **kwargs: build_hybrid(shape, head="lstm", **kwargs),
+            "handcrafted": build_handcrafted,
         }[architecture]
         if warm_start is None:
             model = builder(INPUT_SIZE, dropout=DROPOUT)

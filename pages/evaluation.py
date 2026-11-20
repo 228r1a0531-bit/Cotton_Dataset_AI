@@ -24,7 +24,7 @@ for pattern, kind in (("evaluations/*/experiment.json", "Experiment"), ("trainin
         if state.get("status") == "Completed":
             sources[f"{kind} · {manifest.parent.name}"] = manifest.parent
             protocols[manifest.parent] = state
-            if state.get("protocol") in ("ablation", "loss"):
+            if state.get("protocol") in ("ablation", "stem", "loss", "heads", "features"):
                 for trial in sorted(manifest.parent.glob("training_runs/*/training.json")):
                     spec = read_json(trial)
                     configuration = spec.get("configuration")
