@@ -146,13 +146,16 @@ run = runs[0].parent if runs else RESULTS
 state = read_json(run / "training.json")
 st.write(state.get("status", "Not trained yet"))
 if runs and state:
-    target = state["configuration"]["Epochs"]
-    completed = state["completed"]
-    progress.progress(completed / target, text=f"{completed} of {target} epochs recorded")
     st.caption(f"Latest run: {run.name}")
-    if state.get("status") == "Completed" and completed < target:
-        st.caption(f"Early stopping restored weights from epoch {state['best_epoch']}.")
-    if test := state.get("test"):
+    configuration = state.get("configuration")
+    target = configuration.get("Epochs") if isinstance(configuration, dict) else None
+    completed = state.get("completed")
+    if type(target) is int and type(completed) is int and target > 0 and 0 <= completed <= target:
+        progress.progress(completed / target, text=f"{completed} of {target} epochs recorded")
+        if state.get("status") == "Completed" and completed < target and "best_epoch" in state:
+            st.caption(f"Early stopping restored weights from epoch {state['best_epoch']}.")
+    test = state.get("test")
+    if isinstance(test, dict) and all(isinstance(test.get(key), (int, float)) for key in ("accuracy", "loss")):
         st.write(f"Held-out test accuracy: {test['accuracy']:.2%} · Test loss: {test['loss']:.4f}")
 
 st.subheader("Training history")
@@ -161,7 +164,7 @@ if history is None:
     empty("No epoch metrics have been recorded.")
 else:
     for metric, column in zip(("accuracy", "loss"), st.columns(2)):
-        series = history.loc[history["metric"].str.lower() == metric].sort_values("epoch")
+        series = history.loc[history["metric"].astype("string").str.lower() == metric].sort_values("epoch")
         if not series.empty:
             with column:
                 chart(px.line(series, x="epoch", y="value", color="split", markers=True,

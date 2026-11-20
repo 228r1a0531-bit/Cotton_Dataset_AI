@@ -48,34 +48,85 @@ python -m unittest discover -s tests -v
 | `tests/` | Dashboard and image-processing smoke tests |
 | `.streamlit/config.toml` | Theme and server settings |
 
-## Set up a dataset on Windows with PyCharm
+## Windows 10/11 and PyCharm
 
-1. Keep the dataset in a local folder such as `C:\Data\Cotton Leaves`. Give it
-   four class subfolders: `bacterial_blight`, `curl_virus`,
-   `fusarium_wilt` (or `fussarium_wilt`), and `healthy`. Names such as
-   `Bacterial Blight` and `Leaf Curl Virus` also work. No download is required.
-2. Open this repository in PyCharm and select a Python 3.11 virtual environment
-   as the project interpreter. In the PyCharm terminal run
-   `python -m pip install -r requirements.txt`. For training, also run
-   `python -m pip install -r requirements-ml.txt`.
-3. Run `python -m streamlit run app.py` from the repository root and open
-   **Dataset & Training**. Paste the dataset root into the path field and choose
-   **Scan dataset**. Alternatively, set
-   `$env:COTTONLEAF_DATASET_ROOT = 'C:\Data\Cotton Leaves'` in PowerShell before
-   launching Streamlit, or add the same environment variable in the PyCharm run
-   configuration. A PyCharm Python run configuration can use module
-   `streamlit`, parameters `run app.py`, and the repository as working directory.
-   With no configured path, the app checks `datasets/`, `dataset/`, and
-   `data/` and their immediate children.
-4. Inspect the counts and unreadable paths. Save the splits, or select Fast Demo
-   and start a short baseline run. Full hybrid training is also available. Training artifacts are written under
-   `results/`; see [their formats](results/README.md).
+Use 64-bit Python 3.11. On Windows, install the Python launcher when installing
+Python. Confirm that PowerShell can find the interpreter.
 
-The scanner fingerprints decoded, EXIF-oriented RGB pixels. Identical copies
-within a class collapse to one representative. Exact duplicates with conflicting
-labels are excluded until the labels are resolved. Recompressed or cropped
-near-duplicates can require manual review. Each class needs at least three
-eligible images to appear in all three splits.
+```powershell
+py -3.11 --version
+```
+
+Open a terminal in the repository folder and run `.\run_app.bat`. The launcher
+uses `.venv`, creates it when missing, and installs the core packages when
+needed. Open the Streamlit URL printed in the terminal. Press Ctrl+C to stop
+the app.
+
+For a manual install, run these commands from the repository root. Calling
+the virtual environment's Python directly also works when PowerShell blocks
+activation scripts.
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m streamlit run app.py --server.headless true
+```
+
+For checkpoint inference or training, install the optional packages into the
+same interpreter with
+`.\.venv\Scripts\python.exe -m pip install -r requirements-ml.txt`. The
+native Windows setup is intended for CPU use. If port 8501 is already taken,
+launch with `.\run_app.bat --server.port 8502` and open the updated URL.
+
+### PyCharm run configuration
+
+1. Open the repository folder in PyCharm. Under **Settings → Project →
+   Python Interpreter**, select **Add Interpreter → Add Local Interpreter** and
+   use the existing `.venv\Scripts\python.exe`. Create the environment with
+   the PowerShell commands above if it does not exist.
+2. Under **Run → Edit Configurations**, add a **Python** configuration.
+   Select **Module name** and enter `streamlit`. Set **Parameters** to
+   `run app.py --server.headless true`, **Working directory** to the
+   repository root, and **Python interpreter** to the project's `.venv`.
+3. Click **Run** and open the URL shown in PyCharm's Run console. To use a
+   local dataset, add `COTTONLEAF_DATASET_ROOT` to the configuration's
+   environment variables, or enter the dataset path in the dashboard.
+
+### Optional dataset and checkpoint
+
+Arrange your dataset in four class directories. The dashboard accepts
+`fussarium_wilt` as an alias for `fusarium_wilt`, and recognizes names such
+as `Bacterial Blight` and `Leaf Curl Virus`.
+
+```text
+C:\Data\Cotton Leaves\
+  bacterial_blight\
+  curl_virus\
+  fusarium_wilt\
+  healthy\
+```
+
+Set the root in **Dataset & Training**, or set it before starting Streamlit.
+
+```powershell
+$env:COTTONLEAF_DATASET_ROOT = 'C:\Data\Cotton Leaves'
+.\run_app.bat
+```
+
+With no configured path, the app checks `datasets/`, `dataset/`, and
+`data/` and their immediate children. Inspect valid image counts and
+unreadable files, then save the split metadata. Each class needs at least
+three eligible images for the dashboard's three-way split. Identical
+decoded images within a class share one representative. Recompressed or
+cropped copies can still need manual review.
+
+**Upload & Classification** previews JPEG and PNG uploads without a
+checkpoint. For inference, use a completed dashboard run or pair a compatible
+local `checkpoints/classifier.keras` with `results/inference.json`.
+The manifest records class output order, model input size, and pixel scale.
+See [the artifact contract](results/README.md) and the
+[presentation guide](DEMO_GUIDE.md).
 
 ## Model implementations
 

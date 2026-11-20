@@ -65,7 +65,7 @@ class DemoTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             for filename, contents in tables.items():
                 (Path(directory) / filename).write_text(contents, encoding="utf-8")
-            with patch("utils.dashboard.RESULTS", Path(directory)):
+            with patch("config.RESULTS", Path(directory)), patch("utils.dashboard.RESULTS", Path(directory)):
                 app = AppTest.from_file(str(ROOT / "app.py")).run()
                 for slug, chart_count in [("dataset", 1), ("comparisons", 7), ("evaluation", 4)]:
                     with self.subTest(page=slug):
@@ -89,7 +89,8 @@ class DemoTests(unittest.TestCase):
         import numpy as np
 
         class TestClassifier:
-            def predict(self, pixels, verbose):
+            def __call__(self, pixels, training):
+                assert training is False
                 np.testing.assert_equal(pixels.shape, (1, 2, 3, 3))
                 np.testing.assert_allclose(pixels[0, 0, 0], np.array([10, 20, 30]) / 255)
                 return [[0.1, 0.6, 0.2, 0.1]]

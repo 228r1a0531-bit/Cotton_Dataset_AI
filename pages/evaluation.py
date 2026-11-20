@@ -5,7 +5,7 @@ import plotly.express as px
 import streamlit as st
 
 from config import RESULTS
-from utils.dashboard import PALETTE, chart, empty, heading, read_json, table
+from utils.dashboard import PALETTE, chart, heading, read_json, table
 from utils.research_results import PUBLISHED, published_benchmarks
 
 heading("Evaluation Metrics", "Explore held-out predictions, class-level performance, and measured model costs.")
@@ -21,16 +21,19 @@ for pattern, kind in (("evaluations/*/experiment.json", "Experiment"), ("trainin
             if state.get("protocol") in ("ablation", "loss"):
                 for trial in sorted(manifest.parent.glob("training_runs/*/training.json")):
                     spec = read_json(trial)
-                    if spec.get("status") == "Completed":
-                        name = spec["configuration"]["Model"]
-                        loss = spec["configuration"]["Loss"]
+                    configuration = spec.get("configuration")
+                    if spec.get("status") == "Completed" and isinstance(configuration, dict):
+                        name = configuration.get("Model", "Training trial")
+                        loss = configuration.get("Loss", trial.parent.name)
                         sources[f"{name} · {loss} · {manifest.parent.name}"] = trial.parent
 source = st.selectbox("Local results source", list(sources), index=1 if len(sources) > 1 else 0)
 directory = sources[source]
 protocol = protocols.get(directory, {})
 if protocol.get("protocol") == "external":
-    st.caption(f"External test set: {protocol['scored_images']} scored images. "
-               f"Exact source overlaps excluded: {protocol['excluded_source_duplicates']}.")
+    scored = protocol.get("scored_images")
+    overlaps = protocol.get("excluded_source_duplicates")
+    if isinstance(scored, int) and isinstance(overlaps, int):
+        st.caption(f"External test set: {scored} scored images. Exact source overlaps excluded: {overlaps}.")
 
 
 def results(filename, columns):
@@ -115,7 +118,9 @@ with roc:
         chart(curve)
         st.dataframe(points[["class", "auc"]].drop_duplicates(), hide_index=True)
         if metrics is not None:
-            macro_auc = metrics.loc[metrics["metric"] == "macro_auc", "value"]
+            macro_auc = pd.to_numeric(
+                metrics.loc[metrics["metric"] == "macro_auc", "value"], errors="coerce"
+            ).dropna()
             if not macro_auc.empty:
                 st.metric("Macro one-vs-rest AUC", f"{macro_auc.iloc[0]:.4f}")
         st.caption("Each curve treats one class as positive and pools the other classes as negatives.")

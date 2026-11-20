@@ -49,7 +49,7 @@ def export_table(data, name):
         "Percent": st.column_config.NumberColumn("Score (%)", format="%.2f"),
     })
     st.download_button("Download CSV", data.to_csv(index=False, float_format="%.2f"),
-                       f"{name}.csv", mime="text/csv", key=f"csv_{name}")
+                       f"{name}.csv", mime="text/csv", key=f"csv_{name}", on_click="ignore")
 
 
 heading("Model Comparisons", "Compare the paper's feature extractors and classifiers, then inspect local experiments.")

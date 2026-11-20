@@ -3,7 +3,8 @@
 import streamlit as st
 
 from config import APP_TITLE, RESULTS
-from utils.dashboard import empty, heading, read_json, table
+from utils.dashboard import heading, read_json, table
+from utils.dataset import CLASSES
 from utils.research_results import PUBLISHED, citation, published_benchmarks
 
 heading(APP_TITLE, "Hybrid deep learning for cotton leaf disease classification")
@@ -28,11 +29,10 @@ st.subheader("Cotton leaf classes")
 if not isinstance(labels, list) or len(labels) != 4 or not all(
     isinstance(label, str) and label.strip() for label in labels
 ):
-    empty("Four class labels are expected. The dataset's class names have not been provided.")
-else:
-    for column, label in zip(st.columns(4), labels):
-        with column.container(border=True):
-            st.write(label)
+    labels = [label.replace("_", " ").capitalize() for label in CLASSES]
+for column, label in zip(st.columns(4), labels):
+    with column.container(border=True):
+        st.write(label)
 
 st.subheader("Research architecture")
 st.write(

@@ -39,7 +39,7 @@ def predict(model, source, size: tuple[int, int], scale: str) -> np.ndarray:
     elif scale == "minus1_1":
         pixels = pixels / 127.5 - 1
 
-    scores = np.asarray(model.predict(pixels[None, ...], verbose=0))
+    scores = np.asarray(model(pixels[None, ...], training=False))
     if (
         scores.shape != (1, 4)
         or not np.isfinite(scores).all()
@@ -54,9 +54,9 @@ def predict(model, source, size: tuple[int, int], scale: str) -> np.ndarray:
 def validate_model_shape(model, size: tuple[int, int]) -> None:
     """Check that the checkpoint accepts one RGB input and emits four scores."""
     expected = (size[1], size[0], 3)
-    shape = model.input_shape
-    output = model.output_shape
-    if not isinstance(shape, tuple) or len(shape) != 4 or any(
+    shape = getattr(model, "input_shape", None)
+    output = getattr(model, "output_shape", None)
+    if not isinstance(shape, tuple) or len(shape) != 4 or shape[0] not in (1, None) or any(
         actual is not None and actual != target for actual, target in zip(shape[1:], expected)
     ):
         raise ValueError("Checkpoint input does not match the configured RGB image size.")

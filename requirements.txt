@@ -1,4 +1,4 @@
-# Streamlit demo and image analysis
+# Core dashboard dependencies validated with Python 3.11. TensorFlow is optional.
 streamlit==1.51.0
 plotly==6.4.0
 Pillow==12.2.0
