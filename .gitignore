@@ -1,0 +1,32 @@
+# Local Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+
+# Local datasets and model artifacts
+data/
+dataset/
+datasets/
+checkpoints/
+*.keras
+*.h5
+*.hdf5
+*.ckpt*
+*.tflite
+
+# Generated training and evaluation outputs
+/results/*
+!/results/README.md
+outputs/
+runs/
+logs/
+
+.env
+.streamlit/secrets.toml
