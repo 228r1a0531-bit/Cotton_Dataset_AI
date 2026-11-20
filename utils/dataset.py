@@ -122,20 +122,35 @@ def allocation(total: int) -> list[int]:
     return counts
 
 
-def stratify(dataset: Scan) -> dict[str, list[Sample]]:
-    """Use one representative per exact pixel digest and exclude conflicting labels."""
+def unique_samples(dataset: Scan) -> list[Sample]:
+    """Keep one representative per exact pixel digest and exclude conflicting labels."""
     excluded = set()
     for group in dataset.duplicates:
         copies = group[1:] if len({image.label for image in group}) == 1 else group
         excluded.update(copy.path for copy in copies)
+    return sorted((image for image in dataset.images if image.path not in excluded),
+                  key=lambda image: (image.label, image.path))
 
+
+def check_split_leakage(splits: dict[str, list[Sample]]) -> None:
+    """Reject repeated pixel digests or paths within or across partitions."""
+    digests = set()
+    paths = set()
+    for name, images in splits.items():
+        for image in images:
+            if image.digest in digests or image.path in paths:
+                raise ValueError(f"Duplicate image in split {name}: {image.path}")
+            digests.add(image.digest)
+            paths.add(image.path)
+
+
+def stratify(dataset: Scan) -> dict[str, list[Sample]]:
+    """Create the dashboard's stratified 70:15:15 holdout split."""
+    unique = unique_samples(dataset)
     rng = random.Random(SEED)
     result = {name: [] for name in SPLITS}
     for label in CLASSES:
-        images = sorted(
-            (image for image in dataset.images if image.label == label and image.path not in excluded),
-            key=lambda image: image.path,
-        )
+        images = [image for image in unique if image.label == label]
         if len(images) < 3:
             raise ValueError(f"{label} needs at least three distinct, consistently labeled images.")
         rng.shuffle(images)
@@ -143,6 +158,7 @@ def stratify(dataset: Scan) -> dict[str, list[Sample]]:
         for name, count in zip(SPLITS, allocation(len(images))):
             result[name].extend(images[offset:offset + count])
             offset += count
+    check_split_leakage(result)
     return result
 
 
@@ -159,11 +175,13 @@ def atomic_write(path: Path, write) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def save_splits(directory: Path, dataset: Scan, splits: dict[str, list[Sample]]) -> None:
+def save_splits(directory: Path, dataset: Scan, splits: dict[str, list[Sample]], *,
+                seed=SEED, protocol="holdout") -> None:
     metadata = {
         "root": str(dataset.root),
-        "seed": SEED,
-        "ratios": dict(zip(SPLITS, RATIO)),
+        "seed": seed,
+        "protocol": protocol,
+        "ratios": dict(zip(SPLITS, RATIO)) if protocol == "holdout" else None,
         "splits": {name: [asdict(image) for image in images] for name, images in splits.items()},
     }
     atomic_write(directory / "splits.json", lambda handle: json.dump(metadata, handle, indent=2))

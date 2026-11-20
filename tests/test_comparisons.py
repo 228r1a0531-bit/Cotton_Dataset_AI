@@ -47,12 +47,12 @@ class ComparisonTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertEqual([tab.label for tab in app.tabs], ["Published Research", "Our Experiment"])
         self.assertTrue(any(PUBLISHED in entry.value for entry in app.info))
-        self.assertTrue(any("Per-fold research accuracies were not supplied" in entry.value for entry in app.info))
-        feature, final, before_after, quality = app.get("plotly_chart")
+        feature, final, before_after, quality, folds = app.get("plotly_chart")
         for element, expected in (
             (feature, [96.49, 93.85, 91.81, 98.83]),
             (final, [94.73, 96.78, 99.41]),
             (before_after, [96.49, 98.83]),
+            (folds, [99.3, 99.5, 99.4, 99.4, 99.5]),
         ):
             spec = json.loads(element.proto.spec)
             actual = []
@@ -63,7 +63,7 @@ class ComparisonTests(unittest.TestCase):
             np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-10)
             self.assertEqual(json.loads(element.proto.config)["toImageButtonOptions"]["format"], "png")
         self.assertEqual(len(json.loads(quality.proto.spec)["data"]), 2)
-        self.assertEqual(len(app.get("download_button")), 2)
+        self.assertEqual(len(app.get("download_button")), 3)
 
     def test_local_metrics_require_valid_units_and_preserve_provenance(self):
         records = pd.DataFrame({
@@ -77,14 +77,15 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(set(data["Source"]), {LOCAL})
 
     def test_available_fold_values_and_local_metrics_render_in_their_own_tabs(self):
-        fixture = published_benchmarks()
-        fixture["five_fold_accuracy"] = [{"fold": number, "accuracy": 50 + number} for number in range(1, 6)]
         with TemporaryDirectory() as directory:
             results = Path(directory)
             (results / "metrics.csv").write_text(
                 "metric,value\nprecision,0.6\nrecall,0.7\nf1,0.65\nspecificity,0.8\n", encoding="utf-8"
             )
-            (results / "folds.csv").write_text("fold,metric,value\n1,accuracy,0.75\n", encoding="utf-8")
+            experiment = results / "evaluations" / "cv-fixture"
+            experiment.mkdir(parents=True)
+            (experiment / "experiment.json").write_text('{"status": "Completed", "protocol": "cv"}', encoding="utf-8")
+            (experiment / "folds.csv").write_text("fold,metric,value\n1,accuracy,0.75\n", encoding="utf-8")
             run = results / "training_runs" / "fixture"
             run.mkdir(parents=True)
             (run / "training.json").write_text(json.dumps({
@@ -93,7 +94,6 @@ class ComparisonTests(unittest.TestCase):
             with (
                 patch("config.RESULTS", results),
                 patch("utils.dashboard.RESULTS", results),
-                patch("utils.research_results.published_benchmarks", return_value=fixture),
             ):
                 app = AppTest.from_file(str(ROOT / "app.py")).run().switch_page("pages/comparisons.py").run()
         self.assertFalse(app.exception)

@@ -5,7 +5,7 @@ import plotly.express as px
 import streamlit as st
 
 from config import RESULTS
-from utils.dashboard import PALETTE, chart, empty, heading, table
+from utils.dashboard import PALETTE, chart, empty, heading, read_json, table
 from utils.research_results import (
     LOCAL, METRICS, PUBLISHED, QUALITY_METRICS, STAGES, citation, latest_training_accuracy, local_percentages,
     published_benchmarks, published_metrics,
@@ -98,7 +98,7 @@ with research_tab:
         folds = pd.DataFrame(benchmarks["five_fold_accuracy"]).rename(columns={"fold": "Fold", "accuracy": "Percent"})
         folds["Fold"] = "Fold " + folds["Fold"].astype(str)
         folds = folds.assign(Source=PUBLISHED, Context="Five-fold cross-validation", Model="Published model")
-        percentage_chart(folds, "published_folds", "Each bar represents one reported research fold.", color="Fold", x="Fold")
+        percentage_chart(folds, "published_folds", "Published reference values for the five research folds.", color="Fold", x="Fold")
         export_table(folds, "published_folds")
     else:
         empty("Per-fold research accuracies were not supplied. Add the five sourced values to display this chart.")
@@ -125,14 +125,23 @@ with experiment_tab:
         percentage_chart(run_accuracy, "local_training_accuracy", (
             "This is the accuracy measured on the saved test split for the indicated run."
         ))
-    comparisons = table("comparisons.csv", ("comparison", "variant", "metric", "value"))
-    if comparisons is not None:
+    completed = [
+        path.parent.relative_to(RESULTS)
+        for path in sorted(RESULTS.glob("evaluations/*/experiment.json"), reverse=True)
+        if read_json(path).get("status") == "Completed"
+    ]
+    for directory in [None, *completed]:
+        filename = str(directory / "comparisons.csv") if directory else "comparisons.csv"
+        comparisons = table(filename, ("comparison", "variant", "metric", "value"))
+        if comparisons is None:
+            continue
         for name, rows in comparisons.groupby("comparison", sort=False):
-            scores = local_percentages(rows, str(name), "variant")
+            context = f"{name} · {directory.name}" if directory else str(name)
+            scores = local_percentages(rows, context, "variant")
             if scores.empty:
                 continue
             local_tables.append(scores)
-            st.markdown(f"**{name}**")
+            st.markdown(f"**{context}**")
             percentage_chart(scores, f"local_comparison_{len(local_tables)}", (
                 "These values come from the saved local experiment. Compare variants evaluated under the same split and protocol."
             ), color="Metric", grouped=True)
@@ -149,15 +158,20 @@ with experiment_tab:
                     "These are the saved metrics for the local held-out evaluation. Available metrics depend on what was recorded."
                 ), x="Metric", grouped=True)
 
-    folds = table("folds.csv", ("fold", "metric", "value"))
-    if folds is not None:
-        scores = local_percentages(folds, "Five-fold cross-validation", "fold")
+    for directory in [None, *completed]:
+        filename = str(directory / "folds.csv") if directory else "folds.csv"
+        folds = table(filename, ("fold", "metric", "value"))
+        if folds is None:
+            continue
+        context = f"Five-fold cross-validation · {directory.name}" if directory else "Five-fold cross-validation"
+        scores = local_percentages(folds, context, "fold")
         scores["Model"] = "Fold " + scores["Model"].astype(str)
         scores = scores.rename(columns={"Model": "Fold"})
         accuracy = scores.loc[scores["Metric"] == "Accuracy"]
         if not accuracy.empty:
             st.markdown("**Five-fold local accuracy**")
-            percentage_chart(accuracy, "local_folds", "Each bar shows the recorded accuracy of one local fold.", color="Fold", x="Fold")
+            percentage_chart(accuracy, f"local_folds_{len(local_tables)}",
+                             "Each bar shows the recorded accuracy of one local fold.", color="Fold", x="Fold")
         if not scores.empty:
             local_tables.append(scores.rename(columns={"Fold": "Model"}))
 

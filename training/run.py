@@ -9,9 +9,11 @@ import csv
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from uuid import uuid4
 
-from utils.dataset import CLASSES, Scan, Sample, SEED, atomic_write, save_splits
+from utils.dataset import CLASSES, Scan, Sample, SEED, atomic_write, check_split_leakage, save_splits
+from utils.evaluation import save_evaluation, score_samples, write_csv
 from utils.images import model_pixels
 
 INPUT_SIZE = (224, 224, 3)
@@ -23,7 +25,13 @@ EARLY_STOP_PATIENCE = 7
 LR_PATIENCE = 3
 LR_FACTOR = 0.5
 MIN_LEARNING_RATE = 1e-6
-MODEL_NAMES = {"baseline": "Baseline CNN", "hybrid": "Hybrid feature fusion"}
+MODEL_NAMES = {
+    "baseline": "Baseline CNN",
+    "cn2_se": "CNN+SE",
+    "inception": "InceptionV3",
+    "modified": "Modified InceptionV3",
+    "hybrid": "Hybrid feature fusion",
+}
 
 
 def settings(epochs: int = FULL_EPOCHS, architecture="baseline", loss_name="cross_entropy") -> dict:
@@ -45,9 +53,12 @@ def settings(epochs: int = FULL_EPOCHS, architecture="baseline", loss_name="cros
 
 
 def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: Path, on_epoch,
-          *, architecture="baseline", loss_name="cross_entropy", loss_options=None) -> Path:
+          *, architecture="baseline", loss_name="cross_entropy", loss_options=None,
+          seed=SEED, protocol="holdout") -> Path:
     """Fit train samples, monitor validation samples, and evaluate the held-out test split."""
     configuration = settings(epochs, architecture, loss_name)
+    configuration["Seed"] = seed
+    check_split_leakage(splits)
     loss_options = {} if loss_options is None else dict(loss_options)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     run = results / "training_runs" / f"{stamp}-{uuid4().hex[:8]}"
@@ -72,10 +83,11 @@ def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: 
 
         from models.cnn import build_cnn
         from models.hybrid import build_hybrid
+        from models.inception import build_inception_v3, build_modified_inception
         from models.losses import build_loss
 
-        save_splits(run, dataset, splits)
-        keras.utils.set_random_seed(SEED)
+        save_splits(run, dataset, splits, seed=seed, protocol=protocol)
+        keras.utils.set_random_seed(seed)
         targets = dict(zip(CLASSES, np.eye(len(CLASSES), dtype=np.float32)))
 
         def batches(samples: list[Sample], shuffle: bool):
@@ -91,7 +103,7 @@ def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: 
             )
             data = data.apply(tf.data.experimental.assert_cardinality(len(samples)))
             if shuffle:
-                data = data.shuffle(min(len(samples), BATCH_SIZE * 2), seed=SEED)
+                data = data.shuffle(min(len(samples), BATCH_SIZE * 2), seed=seed)
             options = tf.data.Options()
             options.threading.private_threadpool_size = 1
             return data.with_options(options).batch(BATCH_SIZE).prefetch(1)
@@ -118,7 +130,13 @@ def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: 
                 save_state()
                 on_epoch(number, epochs, summary)
 
-        builder = {"baseline": build_cnn, "hybrid": build_hybrid}[architecture]
+        builder = {
+            "baseline": build_cnn,
+            "cn2_se": lambda shape, **kwargs: build_cnn(shape, use_se=True, **kwargs),
+            "inception": build_inception_v3,
+            "modified": build_modified_inception,
+            "hybrid": build_hybrid,
+        }[architecture]
         model = builder(INPUT_SIZE, dropout=DROPOUT)
         loss = build_loss(loss_name, **loss_options)
         state["loss_configuration"] = loss.get_config()
@@ -134,13 +152,23 @@ def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: 
         reduce_lr = keras.callbacks.ReduceLROnPlateau(
             monitor="val_loss", factor=LR_FACTOR, patience=LR_PATIENCE, min_lr=MIN_LEARNING_RATE
         )
-        model.fit(batches(splits["train"], shuffle=True),
-                  validation_data=batches(splits["validation"], shuffle=False),
+        training_batches = batches(splits["train"], shuffle=True)
+        validation_batches = batches(splits["validation"], shuffle=False)
+        started = perf_counter()
+        model.fit(training_batches, validation_data=validation_batches,
                   epochs=epochs, shuffle=False, callbacks=[early_stop, reduce_lr, EpochRecorder()], verbose=0)
+        seconds = perf_counter() - started
         state["best_epoch"] = early_stop.best_epoch + 1
-        test = model.evaluate(batches(splits["test"], shuffle=False), return_dict=True, verbose=0)
-        state["test"] = {key: float(value) for key, value in test.items()}
-        model.save(run / "classifier.keras")
+        test = splits["test"]
+        labels, scores = score_samples(model, dataset.root, test, INPUT_SIZE[:2][::-1], BATCH_SIZE)
+        evaluation = save_evaluation(run, test, labels, scores)
+        state["test"] = {"accuracy": evaluation.summary["accuracy"],
+                         "loss": float(loss(np.eye(len(CLASSES), dtype=np.float32)[labels], scores))}
+        checkpoint = run / "classifier.keras"
+        model.save(checkpoint)
+        complexity = (MODEL_NAMES[architecture], seconds, model.count_params(),
+                      checkpoint.stat().st_size / 1_000_000)
+        write_csv(run / "complexity.csv", ("model", "training_seconds", "parameters", "file_mb"), [complexity])
         manifest = {
             "classes": list(CLASSES),
             "image_size": list(INPUT_SIZE[:2][::-1]),

@@ -1,49 +1,148 @@
-"""Read recorded model evaluation outputs."""
+"""Explore actual evaluation bundles and separate published fold references."""
 
+import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from utils.dashboard import PALETTE, chart, empty, heading, table
+from config import RESULTS
+from utils.dashboard import PALETTE, chart, empty, heading, read_json, table
+from utils.research_results import PUBLISHED, published_benchmarks
 
-heading("Evaluation Metrics", "Review measured classification performance and computational cost.")
+heading("Evaluation Metrics", "Explore held-out predictions, class-level performance, and measured model costs.")
+
+sources = {"Standalone result files": RESULTS}
+protocols = {}
+for pattern, kind in (("evaluations/*/experiment.json", "Experiment"), ("training_runs/*/training.json", "Training run")):
+    for manifest in sorted(RESULTS.glob(pattern), reverse=True):
+        state = read_json(manifest)
+        if state.get("status") == "Completed":
+            sources[f"{kind} · {manifest.parent.name}"] = manifest.parent
+            protocols[manifest.parent] = state
+            if state.get("protocol") in ("ablation", "loss"):
+                for trial in sorted(manifest.parent.glob("training_runs/*/training.json")):
+                    spec = read_json(trial)
+                    if spec.get("status") == "Completed":
+                        name = spec["configuration"]["Model"]
+                        loss = spec["configuration"]["Loss"]
+                        sources[f"{name} · {loss} · {manifest.parent.name}"] = trial.parent
+source = st.selectbox("Local results source", list(sources), index=1 if len(sources) > 1 else 0)
+directory = sources[source]
+protocol = protocols.get(directory, {})
+if protocol.get("protocol") == "external":
+    st.caption(f"External test set: {protocol['scored_images']} scored images. "
+               f"Exact source overlaps excluded: {protocol['excluded_source_duplicates']}.")
+
+
+def results(filename, columns):
+    """Read an artifact within the selected protocol rather than merging runs."""
+    return table(str((directory / filename).relative_to(RESULTS)), columns)
+
+
+def pending(description):
+    """Explain which experiment can supply a missing result."""
+    with st.container(border=True):
+        st.markdown("**Pending evaluation**")
+        st.write(description)
+
+
 summary, confusion, roc, folds = st.tabs(
-    ["Summary", "Confusion matrix", "ROC / AUC", "Five-fold cross-validation"]
+    ["Summary & complexity", "Confusion matrix", "ROC / AUC", "Five-fold cross-validation"]
 )
 with summary:
-    st.subheader("Accuracy, precision, recall, F1-score, and specificity")
-    metrics = table("metrics.csv", ("metric", "value"))
+    st.subheader("Overall and macro metrics")
+    metrics = results("metrics.csv", ("metric", "value"))
     if metrics is None:
-        empty("No held-out evaluation metrics have been recorded.")
+        pending("A completed training run, cross-validation run, or external evaluation will supply these metrics.")
     else:
-        st.dataframe(metrics, hide_index=True)
-    st.subheader("Training time and model complexity")
-    complexity = table("complexity.csv", ("model", "training_seconds", "parameters"))
+        labels = {"accuracy": "Accuracy", "precision": "Macro precision", "recall": "Macro recall",
+                  "f1": "Macro F1-score", "sensitivity": "Macro sensitivity", "specificity": "Macro specificity",
+                  "macro_auc": "Macro ROC AUC"}
+        st.dataframe(metrics.assign(metric=metrics["metric"].replace(labels)), hide_index=True)
+        st.caption("Macro scores give each class equal weight. Sensitivity and recall use the same true-positive rate.")
+    classes = results("class_metrics.csv", ("class", "precision", "recall", "f1", "sensitivity",
+                                            "specificity", "support"))
+    if classes is not None:
+        st.subheader("Per-class metrics")
+        st.dataframe(classes, hide_index=True)
+
+    st.subheader("Measured training time and model size")
+    complexity = results("complexity.csv", ("model", "training_seconds", "parameters"))
     if complexity is None:
-        empty("Training duration and parameter counts are unavailable.")
+        pending("Run training or an ablation to record elapsed fit time, parameter count, and checkpoint size.")
     else:
-        st.dataframe(complexity, hide_index=True)
+        st.dataframe(complexity, hide_index=True, column_config={
+            "training_seconds": st.column_config.NumberColumn("Fit time (s)", format="%.2f"),
+            "parameters": st.column_config.NumberColumn("Parameters", format="%d"),
+            "file_mb": st.column_config.NumberColumn("Checkpoint (MB)", format="%.2f"),
+        })
+        st.caption("Fit time includes validation and callback work. Keras counts parameters, and checkpoint size uses decimal MB.")
+    st.subheader("Analytical complexity")
+    with st.container(border=True):
+        st.markdown(
+            "For a dense convolution, time scales with **H × W × K² × Cᵢₙ × Cₒᵤₜ** "
+            "per image. A convolutional activation has **H × W × Cₒᵤₜ** elements. "
+            "Batch size multiplies activation storage. Multiply the number of elements by bytes per element "
+            "to estimate tensor storage."
+        )
+        st.markdown(
+            "For an SE block with **C** channels and bottleneck width **d**, pooling and scaling cost "
+            "**O(HWC)** and the gate's dense operations cost **O(Cd)**. Multi-scale and fusion work add "
+            "across their branches. Training also retains activations for backpropagation and optimizer state. "
+            "Exact peak memory and operation timing require device profiler measurements."
+        )
+    st.caption("Optional external evaluation and matched ablation commands are documented in training/README.md.")
+
 with confusion:
-    matrix = table("confusion.csv", ("actual", "predicted", "count"))
+    matrix = results("confusion.csv", ("actual", "predicted", "count"))
     if matrix is None:
-        empty("A confusion matrix requires recorded true and predicted labels.")
+        pending("Ground-truth labels and checkpoint predictions are needed for a confusion matrix.")
     else:
         grid = matrix.pivot_table(index="actual", columns="predicted", values="count", aggfunc="sum")
         chart(px.imshow(grid, text_auto=True, color_continuous_scale="Greens", aspect="auto",
                         labels={"x": "Predicted", "y": "Actual", "color": "Count"}))
+        st.caption("Diagonal cells are correct classifications. Off-diagonal cells show where classes were confused.")
+
 with roc:
-    points = table("roc.csv", ("class", "fpr", "tpr", "auc"))
+    points = results("roc.csv", ("class", "fpr", "tpr", "auc"))
     if points is None:
-        empty("ROC curves and AUC require saved evaluation scores.")
+        pending("A ROC curve needs actual probabilities and both positive and negative labels for the class.")
     else:
-        chart(px.line(points.sort_values("fpr"), x="fpr", y="tpr", color="class",
-                      color_discrete_sequence=PALETTE,
-                      labels={"fpr": "False positive rate", "tpr": "True positive rate"}))
+        curve = px.line(points, x="fpr", y="tpr", color="class", color_discrete_sequence=PALETTE,
+                        labels={"fpr": "False positive rate", "tpr": "True positive rate"})
+        curve.add_shape(type="line", x0=0, y0=0, x1=1, y1=1, line=dict(dash="dash", color="#667a73"))
+        curve.update_xaxes(range=[0, 1])
+        curve.update_yaxes(range=[0, 1.02])
+        chart(curve)
         st.dataframe(points[["class", "auc"]].drop_duplicates(), hide_index=True)
+        if metrics is not None:
+            macro_auc = metrics.loc[metrics["metric"] == "macro_auc", "value"]
+            if not macro_auc.empty:
+                st.metric("Macro one-vs-rest AUC", f"{macro_auc.iloc[0]:.4f}")
+        st.caption("Each curve treats one class as positive and pools the other classes as negatives.")
+
 with folds:
-    scores = table("folds.csv", ("fold", "metric", "value"))
+    st.subheader("Published reference values")
+    st.caption(PUBLISHED)
+    reference = pd.DataFrame(published_benchmarks()["five_fold_accuracy"])
+    reference["fold"] = "Fold " + reference["fold"].astype(str)
+    figure = px.bar(reference, x="fold", y="accuracy", text_auto=".1f", color_discrete_sequence=PALETTE,
+                    labels={"fold": "Fold", "accuracy": "Published accuracy (%)"})
+    figure.update_yaxes(range=[0, 108], ticksuffix="%")
+    figure.update_traces(textposition="outside", texttemplate="%{y:.1f}%")
+    chart(figure, key="evaluation_reference_folds", png_name="evaluation_reference_folds")
+    st.caption("These reference scores come from the supplied publication figures.")
+
+    st.subheader("Local stratified five-fold evaluation")
+    scores = results("folds.csv", ("fold", "metric", "value"))
     if scores is None:
-        empty("No cross-validation fold scores are available.")
+        pending("Run the five-fold evaluation and select its completed result bundle to see local scores.")
     else:
-        chart(px.bar(scores, x="fold", y="value", color="metric", barmode="group",
-                     color_discrete_sequence=PALETTE))
+        metric = st.selectbox("Local fold metric", scores["metric"].drop_duplicates())
+        selected = scores.loc[scores["metric"] == metric].sort_values("fold").copy()
+        selected["fold"] = "Fold " + selected["fold"].astype(str)
+        figure = px.bar(selected, x="fold", y="value", color_discrete_sequence=PALETTE,
+                        labels={"fold": "Fold", "value": metric})
+        figure.update_yaxes(range=[0, 1], tickformat=".0%")
+        chart(figure)
         st.dataframe(scores, hide_index=True)
+        st.caption("Each outer test fold uses a fresh model. The validation split comes from that fold's development data.")

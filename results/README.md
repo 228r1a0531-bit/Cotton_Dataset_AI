@@ -49,9 +49,8 @@ manual checkpoint with this manifest format.
 
 **Published Research** uses the version-controlled
 `research/published_benchmarks.json`. Feature extraction and final
-classification are distinct stages. The supplied benchmark values did not
-include per-fold accuracy. If verified per-fold values become available, add
-five objects with `fold` and `accuracy` (percentage) to `five_fold_accuracy`.
+classification are distinct stages. `five_fold_accuracy` stores the five
+supplied reference fold percentages.
 
 **Our Experiment** reads `comparisons.csv`, `metrics.csv`, and `folds.csv`
 from this directory and shows held-out accuracy from the newest completed
@@ -60,3 +59,25 @@ to a fraction (e.g. `0.9649`). Add a `unit` column with `percent` to use values
 such as `96.49`. `metrics.csv` may include a `model` column to distinguish
 multiple models. CSV downloads retain the data source and the evaluation
 context. The camera button on each chart exports a PNG.
+
+## Evaluation artifacts
+
+A completed dashboard training run or an evaluation bundle may include:
+
+| File | Contents |
+| --- | --- |
+| `metrics.csv` | Overall accuracy, macro precision, recall, F1, sensitivity, specificity, and macro one-vs-rest AUC when defined |
+| `class_metrics.csv` | Per-class precision, recall, F1, sensitivity, specificity, and support |
+| `confusion.csv` | Ground-truth and predicted class pairs with counts |
+| `roc.csv` | One-vs-rest FPR, TPR, and AUC per eligible class |
+| `predictions.csv` | Relative image path, digest, label, prediction, and probabilities by class |
+| `complexity.csv` | Model, wall-clock fit seconds, parameter count, and checkpoint size in decimal MB |
+| `folds.csv` | Measured fold number, metric, and fractional value |
+| `comparisons.csv` | Measured ablation or paired-loss results |
+
+Results from CLI protocols live under `results/evaluations/<id>/`. Their
+`experiment.json` records the protocol and completion status. Individual
+training trial artifacts are retained inside each CV or comparison bundle.
+Rates are fractions. Macro averaging weights each class equally. Recall
+and sensitivity use the same one-vs-rest definition. Specificity is
+`TN / (TN + FP)`. AUC is omitted when a class has no positives or negatives.
