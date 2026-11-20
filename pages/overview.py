@@ -4,6 +4,7 @@ import streamlit as st
 
 from config import APP_TITLE, RESULTS
 from utils.dashboard import empty, heading, read_json, table
+from utils.research_results import PUBLISHED, citation, published_benchmarks
 
 heading(APP_TITLE, "Hybrid deep learning for cotton leaf disease classification")
 st.subheader("Research objective")
@@ -14,17 +15,13 @@ st.write(
 
 metadata = read_json(RESULTS / "research.json")
 counts = table("dataset.csv", ("class", "split", "count"))
-benchmark = metadata.get("benchmark")
-if not isinstance(benchmark, dict) or not all(
-    isinstance(benchmark.get(key), str) and benchmark[key].strip()
-    for key in ("accuracy", "citation")
-):
-    benchmark = {}
+benchmarks = published_benchmarks()
+benchmark = max(row["accuracy"] for row in benchmarks["final_classification"])
 images, classes, published = st.columns(3)
 images.metric("Images in saved splits", f"{counts['count'].sum():,}" if counts is not None else "Unavailable")
 classes.metric("Target classes", "4")
-published.metric("Published accuracy", benchmark.get("accuracy", "Unavailable"))
-st.caption(benchmark.get("citation", "A source citation and published accuracy are needed to show a benchmark."))
+published.metric("Published final classification accuracy", f"{benchmark:.2f}%")
+st.caption(f"{PUBLISHED} {citation(benchmarks)}")
 
 labels = metadata.get("classes")
 st.subheader("Cotton leaf classes")

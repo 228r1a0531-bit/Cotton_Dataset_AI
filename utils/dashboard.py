@@ -77,11 +77,14 @@ def table(filename: str, required: tuple[str, ...]):
         return None
 
 
-def chart(figure) -> None:
+def chart(figure, *, key=None, png_name=None) -> None:
     figure.update_layout(
         margin=dict(l=15, r=15, t=45, b=15),
         legend_title_text="",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="#f8faf8",
     )
-    st.plotly_chart(figure, config={"displaylogo": False})
+    config = {"displaylogo": False}
+    if png_name:
+        config["toImageButtonOptions"] = {"format": "png", "filename": png_name, "scale": 2}
+    st.plotly_chart(figure, key=key, config=config)

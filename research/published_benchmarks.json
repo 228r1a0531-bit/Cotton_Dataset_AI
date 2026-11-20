@@ -1,0 +1,30 @@
+{
+  "source": {
+    "title": "Robust cotton leaf disease classification using hybrid deep learning approach with multi-loss function",
+    "authors": ["Sailaja Madhu", "V. Ravisankar"]
+  },
+  "feature_extraction": [
+    {"model": "CNN", "accuracy": 96.49},
+    {"model": "InceptionV3", "accuracy": 93.85},
+    {"model": "Handcrafted features", "accuracy": 91.81},
+    {
+      "model": "CN2-SE + Modified InceptionV3",
+      "accuracy": 98.83,
+      "sensitivity": 99.42,
+      "specificity": 98.22,
+      "recall": 99.42
+    }
+  ],
+  "final_classification": [
+    {"model": "Hybrid + ANN", "accuracy": 94.73},
+    {"model": "Hybrid + LSTM", "accuracy": 96.78},
+    {
+      "model": "Hybrid + MLP",
+      "accuracy": 99.41,
+      "sensitivity": 99.42,
+      "specificity": 99.40,
+      "recall": 99.42
+    }
+  ],
+  "five_fold_accuracy": []
+}

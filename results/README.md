@@ -5,7 +5,7 @@ recorded measurements and cite any externally published benchmark.
 
 | File | Required CSV columns or JSON fields |
 | --- | --- |
-| `research.json` | `classes` (four labels), `benchmark` (object with `accuracy` and `citation` strings) |
+| `research.json` | `classes` (four labels) |
 | `dataset.csv` | `class,split,count`, one row per class and split |
 | `training.json` | `configuration` (object), `status` (string) |
 | `training.log` | Plain text. The dashboard displays the tail. |
@@ -44,3 +44,19 @@ New checkpoints use the ordered labels `bacterial_blight`, `curl_virus`,
 `image_size: [224, 224]`, and `pixel_scale: "0_255"` because the model handles
 rescaling internally. Older `baseline.keras` runs can still be installed as a
 manual checkpoint with this manifest format.
+
+## Model comparison dashboard
+
+**Published Research** uses the version-controlled
+`research/published_benchmarks.json`. Feature extraction and final
+classification are distinct stages. The supplied benchmark values did not
+include per-fold accuracy. If verified per-fold values become available, add
+five objects with `fold` and `accuracy` (percentage) to `five_fold_accuracy`.
+
+**Our Experiment** reads `comparisons.csv`, `metrics.csv`, and `folds.csv`
+from this directory and shows held-out accuracy from the newest completed
+dashboard training run. For the comparison charts, a CSV metric value defaults
+to a fraction (e.g. `0.9649`). Add a `unit` column with `percent` to use values
+such as `96.49`. `metrics.csv` may include a `model` column to distinguish
+multiple models. CSV downloads retain the data source and the evaluation
+context. The camera button on each chart exports a PNG.
