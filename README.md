@@ -149,3 +149,23 @@ paper's exact topology.
 Install `requirements-ml.txt` to run model tests and training. Synthetic
 forward-pass tests validate software behavior only. See [training](training/README.md)
 for the baseline and hybrid workflows.
+
+## Training cards and research preview
+
+Open **Dataset & Training** to see **Fast Demo** and **Full Hybrid** side by
+side. Fast Demo defaults to two epochs. Full Hybrid defaults to a 50-epoch
+budget and saves the weights restored from the best validation-loss epoch.
+Both require verified local images and save their own observed metrics and
+checkpoints. The scan counts valid and distinct eligible images separately.
+The app preserves source files and derives eligible counts from the scan.
+
+Click **Preview 50-Epoch Research Target** to replay the **Simulated prototype
+training preview** in about 40 seconds. The illustrative validation curve
+ends at 99.41%, the published reference. The replay is available without data
+or TensorFlow and writes no artifacts. Real training has separate buttons.
+When both checkpoints exist, choose one in **Upload & Classification**.
+
+In **Model Comparisons → Our Experiment**, use **Comparison** for the
+architecture and loss comparisons. Pending comparisons show architecture
+descriptions or documented published references. Run the protocols in
+[the training guide](training/README.md) to populate matched local charts.

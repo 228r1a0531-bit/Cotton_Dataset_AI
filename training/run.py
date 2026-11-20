@@ -30,6 +30,7 @@ MODEL_NAMES = {
     "cn2_se": "CNN+SE",
     "inception": "InceptionV3",
     "modified": "Modified InceptionV3",
+    "modified_no_stem": "Modified InceptionV3 without STEM",
     "hybrid": "Hybrid feature fusion",
 }
 
@@ -63,7 +64,7 @@ def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     run = results / "training_runs" / f"{stamp}-{uuid4().hex[:8]}"
     run.mkdir(parents=True)
-    state = {"status": "Training", "configuration": configuration, "completed": 0,
+    state = {"status": "Training", "architecture": architecture, "configuration": configuration, "completed": 0,
              "loss_options": loss_options, "class_indices": dict(zip(CLASSES, range(len(CLASSES))))}
     history = []
 
@@ -135,6 +136,7 @@ def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: 
             "cn2_se": lambda shape, **kwargs: build_cnn(shape, use_se=True, **kwargs),
             "inception": build_inception_v3,
             "modified": build_modified_inception,
+            "modified_no_stem": lambda shape, **kwargs: build_modified_inception(shape, use_stem=False, **kwargs),
             "hybrid": build_hybrid,
         }[architecture]
         model = builder(INPUT_SIZE, dropout=DROPOUT)

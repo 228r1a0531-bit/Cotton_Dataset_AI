@@ -61,3 +61,26 @@ class EvaluationTests(unittest.TestCase):
         dataset = Scan(Path("."), [Sample(f"{label}/0.png", label, label) for label in CLASSES], {}, set(CLASSES))
         with self.assertRaisesRegex(ValueError, "at least five eligible"):
             five_fold_splits(dataset)
+
+    def test_dashboard_recovers_curves_and_metrics_from_saved_predictions(self):
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+
+        from streamlit.testing.v1 import AppTest
+
+        from config import ROOT
+
+        with TemporaryDirectory() as directory:
+            results = Path(directory)
+            rows = [",".join(("actual", *CLASSES))]
+            for index, name in enumerate(CLASSES):
+                rows.append(",".join((name, *("1" if index == col else "0" for col in range(4)))))
+            (results / "predictions.csv").write_text("\n".join(rows), encoding="utf-8")
+            with patch("config.RESULTS", results), patch("utils.dashboard.RESULTS", results):
+                app = AppTest.from_file(str(ROOT / "app.py")).run().switch_page("pages/evaluation.py").run()
+        self.assertFalse(app.exception)
+        self.assertEqual(len(app.get("plotly_chart")), 3)
+        metrics = {metric.label: metric.value for metric in app.metric}
+        self.assertEqual(metrics["Published final classification reference"], "99.41%")
+        self.assertEqual(metrics["Actual model accuracy"], "100.00%")
+        self.assertEqual(metrics["Macro one-vs-rest AUC"], "1.0000")

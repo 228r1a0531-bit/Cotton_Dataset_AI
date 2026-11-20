@@ -31,6 +31,7 @@ also reads completed comparison and fold artifacts.
 ```bash
 python -m training.experiments cv "path/to/dataset" --model baseline --epochs 5
 python -m training.experiments ablation "path/to/dataset" --epochs 5
+python -m training.experiments stem "path/to/dataset" --epochs 5
 python -m training.experiments loss "path/to/dataset" --epochs 5
 python -m training.experiments external "path/to/second-dataset" --run "results/training_runs/<run-id>"
 ```
@@ -44,6 +45,9 @@ python -m training.experiments external "path/to/second-dataset" --run "results/
 - **Ablation** trains CNN, CNN+SE, standard InceptionV3 from scratch, Modified
   InceptionV3, and the fused model with categorical cross-entropy on the
   same holdout split, seed, and epoch budget.
+- **STEM ablation** keeps the same modified Inception feature blocks and head.
+  It compares the learned STEM against a fixed average-pooling downsample,
+  using the same holdout split, loss, seed, and epoch budget.
 - **Loss comparison** fixes the fused architecture, holdout split, seed,
   and epoch budget. It compares categorical cross-entropy with hybrid
   CE + focal loss (coefficients 0.5 and 0.5, gamma 2, alpha 0.25).

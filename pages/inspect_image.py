@@ -6,13 +6,21 @@ import streamlit as st
 from PIL import Image
 
 from config import IMAGE_TYPES, RESULTS, ROOT
-from models.inference import find_checkpoint, model_settings, predict, validate_model_shape
+from models.inference import available_checkpoints, model_settings, predict, validate_model_shape
 from models.keras_io import load_classifier
 from utils.dashboard import PALETTE, chart, empty, heading, read_json
 from utils.images import load_preview
 
 heading("Upload & Classification", "Inspect a cotton leaf image and run inference when a trained model is available.")
-candidate = find_checkpoint(ROOT, RESULTS)
+checkpoints = available_checkpoints(ROOT, RESULTS)
+candidate = checkpoints[0] if checkpoints else None
+if len(checkpoints) > 1:
+    names = {}
+    for paths in checkpoints:
+        checkpoint, manifest = paths
+        model_name = read_json(manifest).get("model_name", "Classifier")
+        names[f"{model_name} · {checkpoint.parent.name}"] = paths
+    candidate = names[st.selectbox("Saved classifier", names)]
 
 
 @st.cache_resource

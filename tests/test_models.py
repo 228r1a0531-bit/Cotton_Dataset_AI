@@ -21,6 +21,7 @@ class ModelTests(unittest.TestCase):
             "CN2-SE": lambda: build_cnn(use_se=True),
             "standard InceptionV3 (offline)": build_inception_v3,
             "modified InceptionV3": build_modified_inception,
+            "modified InceptionV3 without STEM": lambda: build_modified_inception(use_stem=False),
             "hybrid": build_hybrid,
         }
         image = np.full((1, 224, 224, 3), 127, dtype=np.float32)

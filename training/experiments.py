@@ -89,9 +89,12 @@ def run_comparison(dataset, directory, epochs, mode):
         comparison = "Cross-Entropy vs Hybrid Loss"
         cases = [("Categorical cross-entropy", "hybrid", "cross_entropy"),
                  ("Hybrid CE + focal loss", "hybrid", "hybrid")]
+    elif mode == "stem":
+        comparison = "With STEM vs without STEM"
+        cases = [(MODEL_NAMES[key], key, "cross_entropy") for key in ("modified", "modified_no_stem")]
     else:
         comparison = "Architecture ablation"
-        cases = [(name, model, "cross_entropy") for model, name in MODEL_NAMES.items()]
+        cases = [(name, model, "cross_entropy") for model, name in MODEL_NAMES.items() if model != "modified_no_stem"]
     metrics, complexity = [], []
     for variant, architecture, loss in cases:
         print(variant, flush=True)
@@ -138,7 +141,7 @@ def report_epoch(number, epochs, message):
 def main(argv=None):
     """Parse and execute one local experiment protocol."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("cv", "ablation", "loss", "external"))
+    parser.add_argument("mode", choices=("cv", "ablation", "stem", "loss", "external"))
     parser.add_argument("dataset", type=Path, help="Local four-class dataset directory")
     parser.add_argument("--epochs", type=int, default=FULL_EPOCHS)
     parser.add_argument("--model", choices=MODEL_NAMES, default="baseline", help="Architecture for cv")

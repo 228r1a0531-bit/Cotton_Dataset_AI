@@ -38,7 +38,7 @@ class EndToEndTests(unittest.TestCase):
                     self.assertFalse(app.exception)
 
     @unittest.skipUnless(importlib.util.find_spec("tensorflow"), "Optional TensorFlow dependencies are absent")
-    def test_fast_demo_saves_actual_artifacts_and_classifies(self):
+    def test_two_workflows_save_actual_artifacts_and_classify(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             data, results = root / "images", root / "results"
@@ -58,8 +58,10 @@ class EndToEndTests(unittest.TestCase):
                 app.switch_page("pages/dataset.py").run()
                 self.assertEqual(app.metric[0].value, "12")
                 self.assertTrue(any("Not trained yet" in value.value for value in app.markdown))
-                app.number_input[0].set_value(1)
-                next(button for button in app.button if button.label == "Start training").click().run()
+                self.assertEqual(app.number_input(key="baseline_epochs").value, 2)
+                self.assertEqual(app.number_input(key="hybrid_epochs").value, 50)
+                app.number_input(key="baseline_epochs").set_value(1)
+                next(button for button in app.button if button.label == "Start Fast Demo training").click().run()
                 self.assertFalse(app.error or app.exception)
 
                 run, = (results / "training_runs").iterdir()
@@ -69,20 +71,33 @@ class EndToEndTests(unittest.TestCase):
                 for filename in ("classifier.keras", "inference.json", "history.csv", "metrics.csv",
                                  "predictions.csv", "confusion.csv", "roc.csv", "complexity.csv"):
                     self.assertGreater((run / filename).stat().st_size, 0)
+                app.number_input(key="hybrid_epochs").set_value(1)
+                app.button(key="hybrid_train").click().run()
+                self.assertFalse(app.error or app.exception)
+                hybrid, = set((results / "training_runs").iterdir()) - {run}
+                hybrid_state = json.loads((hybrid / "training.json").read_text(encoding="utf-8"))
+                self.assertEqual(hybrid_state["architecture"], "hybrid")
+                self.assertEqual(hybrid_state["status"], "Completed")
+                self.assertEqual(hybrid_state["best_epoch"], 1)
+                self.assertGreater((hybrid / "classifier.keras").stat().st_size, 0)
+                self.assertFalse(any("Simulated" in chart.proto.spec for chart in app.get("plotly_chart")))
 
                 with patch("streamlit.file_uploader", side_effect=lambda *args, **kwargs: BytesIO(png)):
                     app.switch_page("pages/inspect_image.py").run()
-                    self.assertFalse(app.button[0].disabled)
-                    app.button[0].click().run()
-                    self.assertFalse(app.error or app.exception)
-                    self.assertIn(app.metric[0].value, CLASSES)
-                    self.assertEqual(len(app.get("plotly_chart")), 1)
+                    for checkpoint in app.selectbox[0].options:
+                        app.selectbox[0].set_value(checkpoint).run()
+                        self.assertFalse(app.button[0].disabled)
+                        app.button[0].click().run()
+                        self.assertFalse(app.error or app.exception)
+                        self.assertIn(app.metric[0].value, CLASSES)
+                        self.assertEqual(len(app.get("plotly_chart")), 1)
 
                     manual = root / "checkpoints" / "classifier.keras"
                     manual.parent.mkdir()
                     manual.write_bytes(b"Invalid Keras archive")
                     (results / "inference.json").write_bytes((run / "inference.json").read_bytes())
                     app.run()
+                    app.selectbox[0].set_value(app.selectbox[0].options[0]).run()
                     self.assertFalse(app.exception)
                     self.assertTrue(app.button[0].disabled)
                     self.assertTrue(any("Could not use this checkpoint" in warning.value for warning in app.error))

@@ -67,7 +67,7 @@ class DemoTests(unittest.TestCase):
                 (Path(directory) / filename).write_text(contents, encoding="utf-8")
             with patch("config.RESULTS", Path(directory)), patch("utils.dashboard.RESULTS", Path(directory)):
                 app = AppTest.from_file(str(ROOT / "app.py")).run()
-                for slug, chart_count in [("dataset", 1), ("comparisons", 7), ("evaluation", 4)]:
+                for slug, chart_count in [("dataset", 1), ("comparisons", 8), ("evaluation", 4)]:
                     with self.subTest(page=slug):
                         app.switch_page(f"pages/{slug}.py").run()
                         self.assertFalse(app.exception)

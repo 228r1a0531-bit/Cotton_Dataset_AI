@@ -63,20 +63,25 @@ def inception_block(inputs, width, name):
     return layers.Concatenate(name=f"{name}_concat")([point, spatial, wide, pooled])
 
 
-def modified_features(inputs):
+def modified_features(inputs, *, use_stem=True):
     """Extract a feature vector using a short stem and two multi-scale blocks."""
-    x = modified_stem(inputs)
+    if use_stem:
+        x = modified_stem(inputs)
+    else:
+        x = layers.Rescaling(1 / 255, name="modified_scale")(inputs)
+        # Match the stem's spatial reduction without learned convolutions.
+        x = layers.AveragePooling2D(4, strides=4, padding="same", name="fixed_downsample")(x)
     x = inception_block(x, 24, "mixed_small")
     x = layers.MaxPooling2D(3, strides=2, padding="same", name="mixed_downsample")(x)
     x = inception_block(x, 32, "mixed_large")
     return layers.GlobalAveragePooling2D(name="modified_inception_features")(x)
 
 
-def build_modified_inception(input_shape=(224, 224, 3), *, dropout=0.5):
+def build_modified_inception(input_shape=(224, 224, 3), *, dropout=0.5, use_stem=True):
     """Attach a four-class head to the research-inspired feature extractor."""
     inputs = keras.Input(input_shape, name="image")
-    features = modified_features(inputs)
+    features = modified_features(inputs, use_stem=use_stem)
     outputs = layers.Dense(4, activation="softmax", name="class_probabilities")(
         layers.Dropout(dropout)(features)
     )
-    return keras.Model(inputs, outputs, name="modified_inception_v3")
+    return keras.Model(inputs, outputs, name="modified_inception_v3" if use_stem else "modified_inception_without_stem")

@@ -6,9 +6,15 @@ import streamlit as st
 
 from config import RESULTS
 from utils.dashboard import PALETTE, chart, heading, read_json, table
+from utils.dataset import CLASSES
+from utils.evaluation import measure
 from utils.research_results import PUBLISHED, published_benchmarks
 
 heading("Evaluation Metrics", "Explore held-out predictions, class-level performance, and measured model costs.")
+benchmarks = published_benchmarks()
+published_mlp = next(row["accuracy"] for row in benchmarks["final_classification"] if row["model"] == "Hybrid + MLP")
+st.metric("Published final classification reference", f"{published_mlp:.2f}%")
+st.caption(PUBLISHED)
 
 sources = {"Standalone result files": RESULTS}
 protocols = {}
@@ -48,15 +54,36 @@ def pending(description):
         st.write(description)
 
 
+def load_prediction_metrics():
+    """Recover evaluation values directly from saved labels and probabilities."""
+    predictions = results("predictions.csv", ("actual", *CLASSES))
+    if predictions is None:
+        return None
+    try:
+        labels = [CLASSES.index(label) for label in predictions["actual"]]
+        return measure(labels, predictions[list(CLASSES)].to_numpy())
+    except (TypeError, ValueError) as error:
+        st.warning(f"Could not evaluate saved predictions: {error}")
+        return None
+
+
+recorded = load_prediction_metrics()
+metrics = results("metrics.csv", ("metric", "value"))
+if recorded is not None:
+    metrics = pd.DataFrame(recorded.summary.items(), columns=["metric", "value"])
+
+
 summary, confusion, roc, folds = st.tabs(
     ["Summary & complexity", "Confusion matrix", "ROC / AUC", "Five-fold cross-validation"]
 )
 with summary:
     st.subheader("Overall and macro metrics")
-    metrics = results("metrics.csv", ("metric", "value"))
     if metrics is None:
+        st.metric("Actual model accuracy", "Unavailable")
         pending("A completed training run, cross-validation run, or external evaluation will supply these metrics.")
     else:
+        accuracy = pd.to_numeric(metrics.loc[metrics["metric"] == "accuracy", "value"], errors="coerce").dropna()
+        st.metric("Actual model accuracy", f"{accuracy.iloc[0]:.2%}" if not accuracy.empty else "Unavailable")
         labels = {"accuracy": "Accuracy", "precision": "Macro precision", "recall": "Macro recall",
                   "f1": "Macro F1-score", "sensitivity": "Macro sensitivity", "specificity": "Macro specificity",
                   "macro_auc": "Macro ROC AUC"}
@@ -64,6 +91,9 @@ with summary:
         st.caption("Macro scores give each class equal weight. Sensitivity and recall use the same true-positive rate.")
     classes = results("class_metrics.csv", ("class", "precision", "recall", "f1", "sensitivity",
                                             "specificity", "support"))
+    if recorded is not None:
+        classes = pd.DataFrame(recorded.per_class,
+                               columns=["class", "precision", "recall", "f1", "sensitivity", "specificity", "support"])
     if classes is not None:
         st.subheader("Per-class metrics")
         st.dataframe(classes, hide_index=True)
@@ -97,17 +127,20 @@ with summary:
 
 with confusion:
     matrix = results("confusion.csv", ("actual", "predicted", "count"))
-    if matrix is None:
+    if matrix is None and recorded is None:
         pending("Ground-truth labels and checkpoint predictions are needed for a confusion matrix.")
     else:
-        grid = matrix.pivot_table(index="actual", columns="predicted", values="count", aggfunc="sum")
+        grid = (pd.DataFrame(recorded.confusion, index=CLASSES, columns=CLASSES) if recorded is not None
+                else matrix.pivot_table(index="actual", columns="predicted", values="count", aggfunc="sum"))
         chart(px.imshow(grid, text_auto=True, color_continuous_scale="Greens", aspect="auto",
                         labels={"x": "Predicted", "y": "Actual", "color": "Count"}))
         st.caption("Diagonal cells are correct classifications. Off-diagonal cells show where classes were confused.")
 
 with roc:
     points = results("roc.csv", ("class", "fpr", "tpr", "auc"))
-    if points is None:
+    if recorded is not None:
+        points = pd.DataFrame(recorded.roc, columns=["class", "fpr", "tpr", "auc"])
+    if points is None or points.empty:
         pending("A ROC curve needs actual probabilities and both positive and negative labels for the class.")
     else:
         curve = px.line(points, x="fpr", y="tpr", color="class", color_discrete_sequence=PALETTE,
@@ -128,7 +161,7 @@ with roc:
 with folds:
     st.subheader("Published reference values")
     st.caption(PUBLISHED)
-    reference = pd.DataFrame(published_benchmarks()["five_fold_accuracy"])
+    reference = pd.DataFrame(benchmarks["five_fold_accuracy"])
     reference["fold"] = "Fold " + reference["fold"].astype(str)
     figure = px.bar(reference, x="fold", y="accuracy", text_auto=".1f", color_discrete_sequence=PALETTE,
                     labels={"fold": "Fold", "accuracy": "Published accuracy (%)"})

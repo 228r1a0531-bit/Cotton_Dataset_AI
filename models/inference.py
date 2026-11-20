@@ -67,11 +67,10 @@ def validate_model_shape(model, size: tuple[int, int]) -> None:
 CHECKPOINT_NAME = Path("checkpoints") / "classifier.keras"
 
 
-def find_checkpoint(root: Path, results: Path) -> tuple[Path, Path] | None:
-    """Prefer a manually configured model, then the newest completed training run."""
+def available_checkpoints(root: Path, results: Path) -> list[tuple[Path, Path]]:
+    """List saved checkpoints with manifests, placing manual and newest runs first."""
     manual = root / CHECKPOINT_NAME, results / "inference.json"
-    if all(path.is_file() for path in manual):
-        return manual
+    checkpoints = [manual] if all(path.is_file() for path in manual) else []
     for state in sorted((results / "training_runs").glob("*/training.json"), reverse=True):
         candidate = state.parent / "classifier.keras", state.parent / "inference.json"
         if not all(path.is_file() for path in candidate):
@@ -81,5 +80,10 @@ def find_checkpoint(root: Path, results: Path) -> tuple[Path, Path] | None:
         except (OSError, ValueError):
             continue
         if isinstance(metadata, dict) and metadata.get("status") == "Completed":
-            return candidate
-    return None
+            checkpoints.append(candidate)
+    return checkpoints
+
+
+def find_checkpoint(root: Path, results: Path) -> tuple[Path, Path] | None:
+    """Return the preferred saved checkpoint when one exists."""
+    return next(iter(available_checkpoints(root, results)), None)

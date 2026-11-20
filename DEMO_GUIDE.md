@@ -30,8 +30,10 @@ for installation and interpreter details.
    spatial feature extraction.
 4. **Dataset & Training.** If local images are available, scan the class
    folders and show the usable splits. Use an already completed run to show
-   training history. A one-epoch Fast Demo can demonstrate the workflow
-   when there is time and a compatible dataset.
+   real history in the Fast Demo or Full Hybrid card. A short Fast Demo can
+   demonstrate training with a compatible dataset. For a presentation without
+   training, click **Preview 50-Epoch Research Target**. The labeled simulation
+   takes about 40 seconds and finishes at the published 99.41% target.
 5. **Upload & Classification.** Upload a JPEG or PNG. With a compatible
    checkpoint, click **Classify image** and show the model name and class
    probabilities. Without one, the image preview still works and the

@@ -47,7 +47,7 @@ class ComparisonTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertEqual([tab.label for tab in app.tabs], ["Published Research", "Our Experiment"])
         self.assertTrue(any(PUBLISHED in entry.value for entry in app.info))
-        feature, final, before_after, quality, folds = app.get("plotly_chart")
+        feature, final, before_after, quality, folds = app.tabs[0].get("plotly_chart")
         for element, expected in (
             (feature, [96.49, 93.85, 91.81, 98.83]),
             (final, [94.73, 96.78, 99.41]),
@@ -98,7 +98,34 @@ class ComparisonTests(unittest.TestCase):
                 app = AppTest.from_file(str(ROOT / "app.py")).run().switch_page("pages/comparisons.py").run()
         self.assertFalse(app.exception)
         self.assertEqual(len(app.tabs[0].get("plotly_chart")), 5)
-        self.assertEqual(len(app.tabs[1].get("plotly_chart")), 3)
+        self.assertEqual(len(app.tabs[1].get("plotly_chart")), 4)
         combined = app.tabs[1].dataframe[0].value
         self.assertEqual(set(combined["Source"]), {PUBLISHED, LOCAL})
         self.assertEqual(len(combined.loc[combined["Source"] == LOCAL]), 6)
+
+    def test_each_topic_renders_its_saved_metrics_and_cost_chart(self):
+        from utils.comparison_topics import TOPICS
+
+        with TemporaryDirectory() as directory:
+            results = Path(directory)
+            rows = ["comparison,variant,metric,value"]
+            for topic, variants in TOPICS.items():
+                rows.extend(f"{topic},{name},accuracy,0.65" for name, _ in variants)
+            (results / "comparisons.csv").write_text("\n".join(rows), encoding="utf-8")
+            (results / "complexity.csv").write_text(
+                "model,training_seconds,parameters,file_mb\nBaseline CNN,2,100,0.01\n", encoding="utf-8"
+            )
+            with patch("config.RESULTS", results), patch("utils.dashboard.RESULTS", results):
+                app = AppTest.from_file(str(ROOT / "app.py")).run().switch_page("pages/comparisons.py").run()
+                for topic, variants in TOPICS.items():
+                    with self.subTest(topic=topic):
+                        next(box for box in app.selectbox if box.label == "Comparison").set_value(topic).run()
+                        self.assertFalse(app.exception)
+                        figures = app.tabs[1].get("plotly_chart")
+                        paired = next(chart for chart in figures if "paired_comparison" in chart.proto.id)
+                        self.assertEqual({trace["name"] for trace in json.loads(paired.proto.spec)["data"]},
+                                         {name for name, _ in variants})
+                for measure in ("training_seconds", "parameters", "file_mb"):
+                    next(box for box in app.selectbox if box.label == "Complexity measure").set_value(measure).run()
+                    self.assertFalse(app.exception)
+                    self.assertTrue(any("measured_model_cost" in chart.proto.id for chart in app.get("plotly_chart")))
