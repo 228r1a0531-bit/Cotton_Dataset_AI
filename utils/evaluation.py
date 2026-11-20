@@ -93,12 +93,8 @@ def score_samples(model, root: Path, samples: list[Sample], size, batch_size, cl
     labels = np.array([classes.index(sample.label) for sample in samples], dtype=int)
     probabilities = []
     for start in range(0, len(samples), batch_size):
-        batch = np.stack([model_pixels(root / sample.path, size)
+        batch = np.stack([model_pixels(root / sample.path, size, scale)
                           for sample in samples[start:start + batch_size]])
-        if scale == "0_1":
-            batch /= 255
-        elif scale == "minus1_1":
-            batch = batch / 127.5 - 1
         probabilities.append(np.asarray(model(batch, training=False)))
     return labels, np.concatenate(probabilities) if probabilities else np.empty((0, len(classes)))
 

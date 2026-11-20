@@ -35,6 +35,19 @@ for pattern, kind in (("evaluations/*/experiment.json", "Experiment"), ("trainin
 source = st.selectbox("Local results source", list(sources), index=1 if len(sources) > 1 else 0)
 directory = sources[source]
 protocol = protocols.get(directory, {})
+if protocol.get("protocol") in ("hybrid_audit", "hybrid_refinement"):
+    clean_train = protocol.get("source_clean_train_accuracy")
+    original_val = protocol.get("source_validation_accuracy")
+    if isinstance(clean_train, (int, float)) and isinstance(original_val, (int, float)):
+        st.caption(f"Original checkpoint with dropout off: train {clean_train:.2%} · validation {original_val:.2%}.")
+    logged = protocol.get("source_logged_test_accuracy")
+    measured = protocol.get("source_test_accuracy")
+    if isinstance(logged, (int, float)) and isinstance(measured, (int, float)) and abs(logged - measured) > 1e-6:
+        st.warning(f"Original test accuracy was logged as {logged:.2%}. The saved checkpoint scored {measured:.2%}.")
+    support = table(str((directory / "split_counts.csv").relative_to(RESULTS)), ("class", "train", "validation", "test"))
+    if support is not None:
+        with st.expander("Audited class support by split"):
+            st.dataframe(support, hide_index=True)
 if protocol.get("protocol") == "external":
     scored = protocol.get("scored_images")
     overlaps = protocol.get("excluded_source_duplicates")

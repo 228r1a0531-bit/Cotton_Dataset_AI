@@ -7,6 +7,7 @@ once. Each run saves its own configuration, class order, history and model.
 
 import csv
 import json
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
@@ -55,10 +56,18 @@ def settings(epochs: int = FULL_EPOCHS, architecture="baseline", loss_name="cros
 
 def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: Path, on_epoch,
           *, architecture="baseline", loss_name="cross_entropy", loss_options=None,
-          seed=SEED, protocol="holdout") -> Path:
+          seed=SEED, protocol="holdout", warm_start: Path | None = None) -> Path:
     """Fit train samples, monitor validation samples, and evaluate the held-out test split."""
     configuration = settings(epochs, architecture, loss_name)
     configuration["Seed"] = seed
+    if warm_start is not None:
+        if architecture != "hybrid":
+            raise ValueError("Checkpoint fine-tuning is supported for the existing hybrid architecture.")
+        configuration.update({
+            "Learning rate": 3e-5, "Dropout": 0.25, "Initialization": str(warm_start),
+            "Augmentation": "Train-only flips and small rotations",
+            "Class weighting": "Normalized inverse square root of training frequency",
+        })
     check_split_leakage(splits)
     loss_options = {} if loss_options is None else dict(loss_options)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
@@ -85,11 +94,27 @@ def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: 
         from models.cnn import build_cnn
         from models.hybrid import build_hybrid
         from models.inception import build_inception_v3, build_modified_inception
+        from models.keras_io import load_classifier
         from models.losses import build_loss
 
         save_splits(run, dataset, splits, seed=seed, protocol=protocol)
         keras.utils.set_random_seed(seed)
         targets = dict(zip(CLASSES, np.eye(len(CLASSES), dtype=np.float32)))
+        if warm_start is not None:
+            counts = Counter(item.label for item in splits["train"])
+            if any(counts[label] == 0 for label in CLASSES):
+                raise ValueError("Checkpoint fine-tuning requires training images for every class.")
+            weights = np.array([1 / np.sqrt(counts[label]) for label in CLASSES])
+            mean_weight = np.average(weights, weights=[counts[label] for label in CLASSES])
+            weights = tf.constant(weights / mean_weight, dtype=tf.float32)
+            state["class_weights"] = dict(zip(CLASSES, weights.numpy().tolist()))
+            augment = keras.Sequential([
+                keras.layers.RandomFlip("horizontal_and_vertical", seed=seed),
+                keras.layers.RandomRotation(0.04, fill_mode="reflect", seed=seed + 1),
+            ])
+
+            def augment_training(pixels, labels):
+                return augment(pixels, training=True), labels, tf.gather(weights, tf.argmax(labels, axis=1))
 
         def batches(samples: list[Sample], shuffle: bool):
             def read_images():
@@ -107,7 +132,10 @@ def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: 
                 data = data.shuffle(min(len(samples), BATCH_SIZE * 2), seed=seed)
             options = tf.data.Options()
             options.threading.private_threadpool_size = 1
-            return data.with_options(options).batch(BATCH_SIZE).prefetch(1)
+            data = data.with_options(options).batch(BATCH_SIZE)
+            if warm_start is not None and shuffle:
+                data = data.map(augment_training)
+            return data.prefetch(1)
 
         class EpochRecorder(keras.callbacks.Callback):
             def on_epoch_end(self, epoch, logs=None):
@@ -139,12 +167,17 @@ def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: 
             "modified_no_stem": lambda shape, **kwargs: build_modified_inception(shape, use_stem=False, **kwargs),
             "hybrid": build_hybrid,
         }[architecture]
-        model = builder(INPUT_SIZE, dropout=DROPOUT)
+        if warm_start is None:
+            model = builder(INPUT_SIZE, dropout=DROPOUT)
+        else:
+            model = load_classifier(warm_start)
+            for layer_name in ("fusion_dropout", "classifier_dropout"):
+                model.get_layer(layer_name).rate = configuration["Dropout"]
         loss = build_loss(loss_name, **loss_options)
         state["loss_configuration"] = loss.get_config()
         save_state()
         model.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
+            optimizer=keras.optimizers.Adam(learning_rate=configuration["Learning rate"]),
             loss=loss,
             metrics=[keras.metrics.CategoricalAccuracy(name="accuracy")],
         )

@@ -68,3 +68,52 @@ callbacks. Parameter counts come from `model.count_params()`. Decimal MB is
 the checkpoint file size and may include optimizer state. Tensor element
 counts and convolution operation estimates describe analytical scaling.
 Peak device memory and kernel timing require separate profiler measurements.
+
+## Audit or refine a completed Full Hybrid run
+
+Use the original dataset root and the existing run directory. Keep
+`classifier.keras`, `training.json`, `inference.json`, and `splits.json`
+together. Run from the repository root with the TensorFlow environment:
+
+```bash
+python -m training.refine "path/to/dataset" "results/training_runs/<original-run>" --audit-only
+python -m training.refine "path/to/dataset" "results/training_runs/<original-run>" --epochs 15
+```
+
+The audit checks the saved class order and RGB input contract, required hybrid
+layers, and all original path, label, and decoded pixel hashes. It checks for
+exact duplicates across splits and reports class support and per-class metrics.
+Near duplicates from cropping or recompression require separate review.
+
+The original Full Hybrid combines CN2-SE and a compact, research-inspired
+Inception branch with a feature-fusion MLP. Standard Keras InceptionV3 can
+accept ImageNet weights when explicitly requested. The smaller hybrid branch
+has different layers and widths, so standard weights cannot initialize it
+directly. This refinement starts from the original local checkpoint as saved.
+
+The candidate keeps the original split and loss, lowers Adam's initial
+learning rate to 0.00003, reduces the two MLP dropout rates from 0.5 to 0.25,
+and retains validation-loss early stopping and learning-rate reduction.
+It applies small rotations and flips only during training and uses
+normalized inverse-square-root class weights derived from training labels.
+Evaluation and inference keep the original deterministic preprocessing.
+
+Historical training accuracy is measured with dropout enabled as weights
+change across batches. Validation runs with dropout disabled using the
+weights at the end of an epoch. Those differences can contribute to
+validation accuracy being higher. The audit also scores the original model's
+train and validation sets with dropout off and the same fixed checkpoint to
+help distinguish that effect from differences in split difficulty.
+
+New reports go to `results/evaluations/`. In **Evaluation Metrics**, select
+the audit or refinement bundle for class support, confusion, and per-class
+results. In **Model Comparisons → Our Experiment**, the refinement bundle
+shows the original and candidate measured on the identical held-out test set.
+Use validation to choose a candidate. Avoid repeated tuning against the
+reported test figures.
+
+The original checkpoint and logs stay in their run directory. **Upload &
+Classification** prioritizes an explicit manual checkpoint override. Without
+one, it prefers the latest saved Full Hybrid over Fast Demo. A completed
+refinement of that hybrid takes priority only if its measured accuracy on
+the same validation split improved. Both checkpoints remain selectable.
