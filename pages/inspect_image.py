@@ -1,21 +1,18 @@
 """Preview an uploaded image and optionally classify it with a local checkpoint."""
 
-from io import BytesIO
-
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 from PIL import Image
 
 from config import IMAGE_TYPES, RESULTS, ROOT
-from models.inference import CHECKPOINT_NAME, model_settings, predict
+from models.inference import find_checkpoint, model_settings, predict, validate_model_shape
 from models.keras_io import load_classifier
 from utils.dashboard import PALETTE, chart, empty, heading, read_json
 from utils.images import load_preview
 
 heading("Upload & Classification", "Inspect a cotton leaf image and run inference when a trained model is available.")
-checkpoint = ROOT / CHECKPOINT_NAME
-manifest_path = RESULTS / "inference.json"
+candidate = find_checkpoint(ROOT, RESULTS)
 
 
 @st.cache_resource
@@ -39,24 +36,44 @@ with preview:
 
 with result:
     st.subheader("Classification result")
-    if not checkpoint.is_file() or not manifest_path.is_file():
+    manifest = {}
+    contract = None
+    model = None
+    if candidate is None:
         empty("Inference unavailable. A trained checkpoint and its inference configuration are required.")
-        st.caption("Class probabilities will appear after a successful inference run.")
-    elif image is None:
-        empty("Upload a valid image to run inference.")
+        st.caption("Complete a training run or configure a trusted checkpoint using the instructions in results/README.md.")
     else:
+        checkpoint, manifest_path = candidate
+        manifest = read_json(manifest_path)
         try:
-            labels, size, scale = model_settings(read_json(manifest_path))
-            with st.spinner("Running inference…"):
-                model = classifier(checkpoint, checkpoint.stat().st_mtime_ns)
-                scores = predict(model, BytesIO(upload.getvalue()), size, scale)
+            contract = model_settings(manifest)
+        except ValueError as error:
+            st.error(f"Incompatible inference configuration. {error}")
+        else:
+            st.caption(f"Model: {manifest.get('model_name') or checkpoint.stem}")
+    if contract is not None and image is None:
+        empty("Upload a valid image to run inference.")
+    if contract is not None and image is not None:
+        labels, size, scale = contract
+        try:
+            loaded = classifier(checkpoint, checkpoint.stat().st_mtime_ns)
+            validate_model_shape(loaded, size)
         except ImportError:
             st.error("Inference needs the optional dependencies in requirements-ml.txt.")
+        except (OSError, ValueError, TypeError, RuntimeError, Image.DecompressionBombError) as error:
+            st.error(f"Could not use this checkpoint. {error}")
+        else:
+            model = loaded
+    if st.button("Classify image", type="primary", disabled=model is None) and model is not None:
+        try:
+            with st.spinner("Running inference…"):
+                scores = predict(model, upload, size, scale)
         except (OSError, ValueError, TypeError, RuntimeError, Image.DecompressionBombError) as error:
             st.error(f"Inference failed. {error}")
         else:
             winner = scores.argmax()
             st.success("Inference complete.")
+            st.caption(f"Checkpoint model: {manifest.get('model_name') or model.name}")
             st.metric("Predicted class", labels[winner])
             probabilities = pd.DataFrame({"Class": labels, "Probability": scores})
             figure = px.bar(probabilities, x="Probability", y="Class", orientation="h",

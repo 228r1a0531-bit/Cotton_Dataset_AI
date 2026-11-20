@@ -1,4 +1,9 @@
-"""Train a small baseline CNN on verified, stratified local images."""
+"""Train a baseline or hybrid model on verified, stratified local images.
+
+The pipeline decodes images with inference's preprocessing, fits on the
+training split, chooses weights by validation loss, and evaluates test data
+once. Each run saves its own configuration, class order, history and model.
+"""
 
 import csv
 import json
@@ -7,32 +12,48 @@ from pathlib import Path
 from uuid import uuid4
 
 from utils.dataset import CLASSES, Scan, Sample, SEED, atomic_write, save_splits
+from utils.images import model_pixels
 
 INPUT_SIZE = (224, 224, 3)
 BATCH_SIZE = 32
 LEARNING_RATE = 0.0001
 FULL_EPOCHS = 50
 DROPOUT = 0.5
+EARLY_STOP_PATIENCE = 7
+LR_PATIENCE = 3
+LR_FACTOR = 0.5
+MIN_LEARNING_RATE = 1e-6
+MODEL_NAMES = {"baseline": "Baseline CNN", "hybrid": "Hybrid feature fusion"}
 
 
-def settings(epochs: int = FULL_EPOCHS) -> dict:
+def settings(epochs: int = FULL_EPOCHS, architecture="baseline", loss_name="cross_entropy") -> dict:
+    """Describe the selected architecture and optimizer settings for the dashboard."""
     return {
-        "Model": "Baseline CNN",
+        "Model": MODEL_NAMES[architecture],
         "Input size": "224 × 224 × 3",
         "Batch size": BATCH_SIZE,
         "Optimizer": "Adam",
         "Learning rate": LEARNING_RATE,
         "Epochs": epochs,
         "Dropout": DROPOUT,
+        "Loss": loss_name,
+        "Early stopping patience": EARLY_STOP_PATIENCE,
+        "Learning rate reduction patience": LR_PATIENCE,
+        "Learning rate reduction factor": LR_FACTOR,
+        "Minimum learning rate": MIN_LEARNING_RATE,
     }
 
 
-def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: Path, on_epoch) -> Path:
+def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: Path, on_epoch,
+          *, architecture="baseline", loss_name="cross_entropy", loss_options=None) -> Path:
     """Fit train samples, monitor validation samples, and evaluate the held-out test split."""
+    configuration = settings(epochs, architecture, loss_name)
+    loss_options = {} if loss_options is None else dict(loss_options)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     run = results / "training_runs" / f"{stamp}-{uuid4().hex[:8]}"
     run.mkdir(parents=True)
-    state = {"status": "Training", "configuration": settings(epochs), "completed": 0}
+    state = {"status": "Training", "configuration": configuration, "completed": 0,
+             "loss_options": loss_options, "class_indices": dict(zip(CLASSES, range(len(CLASSES))))}
     history = []
 
     def save_state():
@@ -43,27 +64,30 @@ def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: 
             handle.write(message + "\n")
 
     save_state()
-    log(f"Started baseline CNN training for {epochs} epoch(s).")
+    log(f"Started {MODEL_NAMES[architecture]} training for up to {epochs} epoch(s).")
     try:
         import numpy as np
         import tensorflow as tf
-        from PIL import Image, ImageOps
         from tensorflow import keras
+
+        from models.cnn import build_cnn
+        from models.hybrid import build_hybrid
+        from models.losses import build_loss
 
         save_splits(run, dataset, splits)
         keras.utils.set_random_seed(SEED)
+        targets = dict(zip(CLASSES, np.eye(len(CLASSES), dtype=np.float32)))
 
         def batches(samples: list[Sample], shuffle: bool):
             def read_images():
                 for item in samples:
-                    with Image.open(dataset.root / item.path) as image:
-                        rgb = ImageOps.exif_transpose(image).convert("RGB")
-                        resized = rgb.resize(INPUT_SIZE[:2][::-1], Image.Resampling.BILINEAR)
-                        yield np.asarray(resized, dtype=np.float32), CLASSES.index(item.label)
+                    pixels = model_pixels(dataset.root / item.path, INPUT_SIZE[:2][::-1])
+                    yield pixels, targets[item.label]
 
             data = tf.data.Dataset.from_generator(
                 read_images,
-                output_signature=(tf.TensorSpec(INPUT_SIZE, tf.float32), tf.TensorSpec((), tf.int32)),
+                output_signature=(tf.TensorSpec(INPUT_SIZE, tf.float32),
+                                  tf.TensorSpec((len(CLASSES),), tf.float32)),
             )
             data = data.apply(tf.data.experimental.assert_cardinality(len(samples)))
             if shuffle:
@@ -94,29 +118,36 @@ def train(dataset: Scan, splits: dict[str, list[Sample]], epochs: int, results: 
                 save_state()
                 on_epoch(number, epochs, summary)
 
-        model = keras.Sequential([
-            keras.Input(INPUT_SIZE),
-            keras.layers.Rescaling(1 / 255),
-            keras.layers.Conv2D(16, 3, strides=2, activation="relu"),
-            keras.layers.MaxPooling2D(),
-            keras.layers.Conv2D(32, 3, activation="relu"),
-            keras.layers.MaxPooling2D(),
-            keras.layers.Conv2D(64, 3, activation="relu"),
-            keras.layers.GlobalAveragePooling2D(),
-            keras.layers.Dropout(DROPOUT),
-            keras.layers.Dense(len(CLASSES), activation="softmax"),
-        ])
+        builder = {"baseline": build_cnn, "hybrid": build_hybrid}[architecture]
+        model = builder(INPUT_SIZE, dropout=DROPOUT)
+        loss = build_loss(loss_name, **loss_options)
+        state["loss_configuration"] = loss.get_config()
+        save_state()
         model.compile(
             optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
-            loss="sparse_categorical_crossentropy",
-            metrics=["accuracy"],
+            loss=loss,
+            metrics=[keras.metrics.CategoricalAccuracy(name="accuracy")],
+        )
+        early_stop = keras.callbacks.EarlyStopping(
+            monitor="val_loss", patience=EARLY_STOP_PATIENCE, restore_best_weights=True
+        )
+        reduce_lr = keras.callbacks.ReduceLROnPlateau(
+            monitor="val_loss", factor=LR_FACTOR, patience=LR_PATIENCE, min_lr=MIN_LEARNING_RATE
         )
         model.fit(batches(splits["train"], shuffle=True),
                   validation_data=batches(splits["validation"], shuffle=False),
-                  epochs=epochs, shuffle=False, callbacks=[EpochRecorder()], verbose=0)
+                  epochs=epochs, shuffle=False, callbacks=[early_stop, reduce_lr, EpochRecorder()], verbose=0)
+        state["best_epoch"] = early_stop.best_epoch + 1
         test = model.evaluate(batches(splits["test"], shuffle=False), return_dict=True, verbose=0)
         state["test"] = {key: float(value) for key, value in test.items()}
-        model.save(run / "baseline.keras")
+        model.save(run / "classifier.keras")
+        manifest = {
+            "classes": list(CLASSES),
+            "image_size": list(INPUT_SIZE[:2][::-1]),
+            "pixel_scale": "0_255",
+            "model_name": MODEL_NAMES[architecture],
+        }
+        atomic_write(run / "inference.json", lambda handle: json.dump(manifest, handle, indent=2))
     except Exception as error:
         state["status"] = "Failed"
         log(f"Training failed: {error}")

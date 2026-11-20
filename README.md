@@ -42,7 +42,7 @@ python -m unittest discover -s tests -v
 | `app.py`, `config.py` | Dashboard entry point and shared settings |
 | `pages/` | Six research dashboard views |
 | `models/` | Optional Keras checkpoint loading and inference |
-| `training/` | Location for future training code |
+| `training/` | Baseline and hybrid training pipeline |
 | `utils/` | Shared styling, artifact loading, and image processing |
 | `results/` | Local research artifacts and their documented formats |
 | `tests/` | Dashboard and image-processing smoke tests |
@@ -68,7 +68,7 @@ python -m unittest discover -s tests -v
    With no configured path, the app checks `datasets/`, `dataset/`, and
    `data/` and their immediate children.
 4. Inspect the counts and unreadable paths. Save the splits, or select Fast Demo
-   and start a short baseline run. Training artifacts are written under
+   and start a short baseline run. Full hybrid training is also available. Training artifacts are written under
    `results/`; see [their formats](results/README.md).
 
 The scanner fingerprints decoded, EXIF-oriented RGB pixels. Identical copies
@@ -76,3 +76,25 @@ within a class collapse to one representative. Exact duplicates with conflicting
 labels are excluded until the labels are resolved. Recompressed or cropped
 near-duplicates can require manual review. Each class needs at least three
 eligible images to appear in all three splits.
+
+## Model implementations
+
+| Builder | Architecture |
+| --- | --- |
+| `models.cnn.build_cnn()` | Compact convolutional baseline with global average pooling and a dense head |
+| `models.cnn.build_cnn(use_se=True)` | Matched CNN with channel-wise squeeze and excitation |
+| `models.inception.build_inception_v3()` | Keras Applications InceptionV3 with a four-class head |
+| `models.inception.build_modified_inception()` | Short 24/32/48-channel stem and two compact multi-scale blocks |
+| `models.hybrid.build_hybrid()` | CN2-SE and modified Inception feature concatenation followed by a dropout-regularized MLP |
+
+Standard InceptionV3 defaults to `weights=None`, so it can be built offline.
+Pass `weights="imagenet"` explicitly to use Keras's cached or downloaded
+ImageNet weights, or provide a path to compatible local backbone weights.
+Explicitly supplied backbone weights are frozen by default. The modified
+architecture uses a shorter stem, fewer blocks and narrower feature channels
+than standard InceptionV3. It is research-inspired and does not reproduce a
+paper's exact topology.
+
+Install `requirements-ml.txt` to run model tests and training. Synthetic
+forward-pass tests validate software behavior only. See [training](training/README.md)
+for the baseline and hybrid workflows.

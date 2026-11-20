@@ -1,12 +1,14 @@
 """Inference for local classifiers that declare their input and output contract."""
 
+import json
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageOps
+from utils.images import model_pixels
 
 
 def model_settings(manifest: dict) -> tuple[list[str], tuple[int, int], str]:
+    """Validate class order, resize dimensions, and any external pixel scaling."""
     labels = manifest.get("classes")
     size = manifest.get("image_size")
     scale = manifest.get("pixel_scale")
@@ -29,12 +31,9 @@ def model_settings(manifest: dict) -> tuple[list[str], tuple[int, int], str]:
 
 
 def predict(model, source, size: tuple[int, int], scale: str) -> np.ndarray:
+    """Run a single image through an actual model and validate its probabilities."""
     source.seek(0)
-    with Image.open(source) as image:
-        pixels = np.asarray(
-            ImageOps.exif_transpose(image).convert("RGB").resize(size, Image.Resampling.BILINEAR),
-            dtype=np.float32,
-        )
+    pixels = model_pixels(source, size)
     if scale == "0_1":
         pixels /= 255
     elif scale == "minus1_1":
@@ -52,4 +51,35 @@ def predict(model, source, size: tuple[int, int], scale: str) -> np.ndarray:
     return scores[0]
 
 
+def validate_model_shape(model, size: tuple[int, int]) -> None:
+    """Check that the checkpoint accepts one RGB input and emits four scores."""
+    expected = (size[1], size[0], 3)
+    shape = model.input_shape
+    output = model.output_shape
+    if not isinstance(shape, tuple) or len(shape) != 4 or any(
+        actual is not None and actual != target for actual, target in zip(shape[1:], expected)
+    ):
+        raise ValueError("Checkpoint input does not match the configured RGB image size.")
+    if not isinstance(output, tuple) or len(output) != 2 or output[-1] != 4:
+        raise ValueError("Checkpoint output does not match the four configured classes.")
+
+
 CHECKPOINT_NAME = Path("checkpoints") / "classifier.keras"
+
+
+def find_checkpoint(root: Path, results: Path) -> tuple[Path, Path] | None:
+    """Prefer a manually configured model, then the newest completed training run."""
+    manual = root / CHECKPOINT_NAME, results / "inference.json"
+    if all(path.is_file() for path in manual):
+        return manual
+    for state in sorted((results / "training_runs").glob("*/training.json"), reverse=True):
+        candidate = state.parent / "classifier.keras", state.parent / "inference.json"
+        if not all(path.is_file() for path in candidate):
+            continue
+        try:
+            metadata = json.loads(state.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(metadata, dict) and metadata.get("status") == "Completed":
+            return candidate
+    return None

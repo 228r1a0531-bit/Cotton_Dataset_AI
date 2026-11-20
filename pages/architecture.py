@@ -1,11 +1,11 @@
-"""Conceptual research architecture diagrams."""
+"""Explain the data flow and research-inspired model components."""
 
 import streamlit as st
 
 from utils.dashboard import heading
 
-heading("Model Architecture", "Proposed component flow for the hybrid classifier.")
-st.caption("Conceptual diagrams. Exact layer settings depend on the research implementation.")
+heading("Model Architecture", "How the implemented hybrid classifier transforms a leaf image into class probabilities.")
+st.caption("The diagram summarizes the implemented research-inspired model.")
 st.graphviz_chart("""
 digraph Hybrid {
     graph [rankdir=TB, bgcolor="transparent"];
@@ -28,11 +28,11 @@ components = [
     ("SE block", "Feature map → global pooling → channel gates → channel-wise rescaling",
      "Squeeze spatial dimensions into channel descriptors. Learned gates rescale each input channel."),
     ("STEM", "Input image → early convolutions → spatial reduction → feature map",
-     "The stem extracts low-level visual features and reduces spatial resolution before deeper blocks."),
+     "A strided 24-channel convolution, a 32-channel convolution, max pooling, and a 48-channel convolution form the modified stem."),
     ("CN2-SE", "Image → convolutional feature extractor → SE attention → feature vector",
      "The CNN branch uses channel attention to recalibrate its learned feature maps."),
     ("Modified InceptionV3", "Image → stem → parallel multi-scale operations → feature vector",
-     "The Inception branch captures patterns at different spatial scales. Exact modifications require a model specification."),
+     "Two compact multi-scale blocks combine pointwise, 3×3, stacked 3×3, and pooled responses. The shorter stem and narrower blocks differ from standard Keras InceptionV3."),
     ("Feature fusion and MLP", "Branch feature vectors → fusion → dense classifier → four class scores",
      "The fusion stage combines representations before the MLP maps them to class scores."),
 ]

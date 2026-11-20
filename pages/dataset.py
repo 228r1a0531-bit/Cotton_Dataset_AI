@@ -7,7 +7,7 @@ import plotly.express as px
 import streamlit as st
 
 from config import RESULTS
-from training.run import FULL_EPOCHS, settings, train
+from training.run import FULL_EPOCHS, MODEL_NAMES, settings, train
 from utils.dashboard import PALETTE, chart, empty, heading, read_json, table
 from utils.dataset import CLASSES, SPLITS, discover, save_splits, scan, stratify
 
@@ -90,14 +90,32 @@ if dataset is not None:
                 st.success("Saved results/splits.json and results/dataset.csv.")
 
 st.subheader("Training configuration")
-mode = st.radio("Training mode", ("Fast Demo", "Full training"), horizontal=True)
+mode = st.radio("Training mode", ("Fast Demo", "Full hybrid training"), horizontal=True)
+architecture = "baseline" if mode == "Fast Demo" else "hybrid"
 epochs = (
     st.number_input("Fast Demo epochs", min_value=1, max_value=10, value=2)
     if mode == "Fast Demo" else FULL_EPOCHS
 )
-st.dataframe(pd.DataFrame(settings(epochs).items(), columns=["Setting", "Value"], dtype=str), hide_index=True)
-st.caption("Full training uses 50 epochs. This trains a baseline CNN. Validation and test images use deterministic preprocessing.")
-start = st.button("Start training", type="primary", disabled=splits is None)
+loss_labels = {"cross_entropy": "Categorical cross-entropy", "focal": "Categorical focal loss",
+               "hybrid": "Weighted CE + focal loss"}
+loss_name = st.selectbox("Loss function", list(loss_labels), index=0 if architecture == "baseline" else 2,
+                         format_func=loss_labels.__getitem__, key=f"loss_{architecture}")
+loss_options = {}
+if loss_name in ("focal", "hybrid"):
+    gamma, alpha = st.columns(2)
+    loss_options["gamma"] = gamma.number_input("Focal gamma", min_value=0.0, value=2.0)
+    loss_options["alpha"] = alpha.number_input("Focal alpha", min_value=0.01, max_value=1.0, value=0.25)
+if loss_name == "hybrid":
+    ce, focal = st.columns(2)
+    loss_options["ce_weight"] = ce.number_input("Cross-entropy coefficient", min_value=0.0, value=0.5)
+    loss_options["focal_weight"] = focal.number_input("Focal coefficient", min_value=0.0, value=0.5)
+invalid_weights = loss_name == "hybrid" and loss_options["ce_weight"] + loss_options["focal_weight"] == 0
+if invalid_weights:
+    st.warning("Set at least one loss coefficient above zero.")
+st.dataframe(pd.DataFrame(settings(epochs, architecture, loss_name).items(),
+                          columns=["Setting", "Value"], dtype=str), hide_index=True)
+st.caption("Fast Demo uses a compact CNN. Full hybrid training runs up to 50 epochs with early stopping.")
+start = st.button("Start training", type="primary", disabled=splits is None or invalid_weights)
 progress = st.empty()
 if start and dataset is not None:
     latest_epoch = st.empty()
@@ -107,13 +125,14 @@ if start and dataset is not None:
         latest_epoch.caption(summary)
 
     try:
-        with st.spinner("Preparing verified splits and training the baseline CNN…"):
+        with st.spinner(f"Preparing verified splits and training {MODEL_NAMES[architecture]}…"):
             fresh = scan(dataset.root)
             st.session_state["dataset_scan"] = fresh
             fresh_splits = stratify(fresh)
             save_splits(RESULTS, fresh, fresh_splits)
             progress.progress(0.0, text=f"Starting {mode.lower()}")
-            train(fresh, fresh_splits, int(epochs), RESULTS, show_epoch)
+            train(fresh, fresh_splits, int(epochs), RESULTS, show_epoch,
+                  architecture=architecture, loss_name=loss_name, loss_options=loss_options)
     except ImportError:
         st.error("Install requirements-ml.txt to enable training.")
     except Exception as error:
@@ -131,6 +150,8 @@ if runs and state:
     completed = state["completed"]
     progress.progress(completed / target, text=f"{completed} of {target} epochs recorded")
     st.caption(f"Latest run: {run.name}")
+    if state.get("status") == "Completed" and completed < target:
+        st.caption(f"Early stopping restored weights from epoch {state['best_epoch']}.")
     if test := state.get("test"):
         st.write(f"Held-out test accuracy: {test['accuracy']:.2%} · Test loss: {test['loss']:.4f}")
 

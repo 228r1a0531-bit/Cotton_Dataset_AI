@@ -33,10 +33,14 @@ digest for every included sample. Counts in `dataset.csv` describe eligible
 split members after excluding duplicates and conflicting labels.
 
 Each training run gets its own `training_runs/<run-id>/` folder. It contains
-the exact split snapshot, `training.json` status and held-out test metrics,
-`history.csv`, `training.log`, and `baseline.keras` after successful training.
-The dashboard reads the most recently started run. To use its checkpoint in
-Upload & Classification, copy it to `checkpoints/classifier.keras` and create
-`inference.json` with classes in this order: `bacterial_blight`, `curl_virus`,
-`fusarium_wilt`, `healthy`. Set `image_size` to `[224, 224]` and
-`pixel_scale` to `0_255` because the baseline rescales inside the model.
+the split snapshot, `training.json` (status, settings, class indices, best epoch,
+and held-out test metrics), `history.csv`, and `training.log`. Successful runs
+also contain `classifier.keras` and `inference.json`. Upload & Classification
+uses the newest completed run with those files unless a manual checkpoint is
+configured at `checkpoints/classifier.keras` with `results/inference.json`.
+
+New checkpoints use the ordered labels `bacterial_blight`, `curl_virus`,
+`fusarium_wilt`, and `healthy`. The manifest records the model name,
+`image_size: [224, 224]`, and `pixel_scale: "0_255"` because the model handles
+rescaling internally. Older `baseline.keras` runs can still be installed as a
+manual checkpoint with this manifest format.
